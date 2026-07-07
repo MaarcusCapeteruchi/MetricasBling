@@ -1,0 +1,7 @@
+requests>=2.32
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+streamlit>=1.40
+python-dotenv>=1.0
+pandas>=2.2
+plotly>=5.24

@@ -1,0 +1,21 @@
+# Segredos — NUNCA commitar
+.env
+.streamlit/secrets.toml
+
+# Banco local de desenvolvimento
+*.db
+*.sqlite3
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# IDE / SO
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
