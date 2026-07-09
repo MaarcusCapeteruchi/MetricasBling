@@ -7,17 +7,29 @@ from db.models import Produto
 
 
 def listar_produtos(cliente_id: int) -> pd.DataFrame:
-    """Produtos do cliente com preço de venda e custo, para edição."""
+    """Produtos do cliente para edição de custo.
+
+    Traz o PREÇO MÉDIO DE VENDA REAL (dos pedidos), não o preço do cadastro
+    do Bling — este costuma vir zerado quando o vendedor cadastra o preço na
+    variação. O preço real varia por marketplace; aqui é a média entre eles.
+    """
     with engine.connect() as conexao:
         df = pd.read_sql(
             text("""
-                SELECT id AS produto_id, sku, nome, preco_venda, preco_custo
-                FROM produtos WHERE cliente_id = :c ORDER BY nome
+                SELECT pr.id AS produto_id, pr.sku, pr.nome, pr.preco_custo,
+                       AVG(i.valor_unitario) AS preco_medio_real,
+                       COALESCE(SUM(i.quantidade), 0) AS qtd_vendida
+                FROM produtos pr
+                LEFT JOIN itens_pedido i ON i.produto_id = pr.id
+                WHERE pr.cliente_id = :c
+                GROUP BY pr.id, pr.sku, pr.nome, pr.preco_custo
+                ORDER BY qtd_vendida DESC, pr.nome
             """),
             conexao, params={"c": cliente_id},
         )
-    df["preco_venda"] = pd.to_numeric(df["preco_venda"], errors="coerce")
+    df["preco_medio_real"] = pd.to_numeric(df["preco_medio_real"], errors="coerce")
     df["preco_custo"] = pd.to_numeric(df["preco_custo"], errors="coerce")
+    df["qtd_vendida"] = pd.to_numeric(df["qtd_vendida"], errors="coerce").fillna(0)
     return df
 
 

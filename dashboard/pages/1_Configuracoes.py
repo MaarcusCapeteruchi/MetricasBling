@@ -139,6 +139,11 @@ with aba_custos:
         "Edite o **preço de custo** direto na tabela (a coluna verde). Os demais "
         "campos são só leitura. Use a busca para achar produtos."
     )
+    st.caption(
+        "O **preço médio de venda** é calculado das vendas reais (varia por "
+        "marketplace — aqui é a média). Não usamos o preço do cadastro do Bling, "
+        "que costuma vir zerado."
+    )
     busca = st.text_input("🔎 Buscar por nome ou SKU", "")
 
     produtos = catalogo.listar_produtos(cliente_id)
@@ -150,15 +155,19 @@ with aba_custos:
         ]
 
     visao = produtos.rename(columns={
-        "sku": "SKU", "nome": "Produto",
-        "preco_venda": "Preço venda (R$)", "preco_custo": "Preço custo (R$)",
+        "sku": "SKU", "nome": "Produto", "qtd_vendida": "Vendidos",
+        "preco_medio_real": "Preço médio de venda (R$)", "preco_custo": "Preço custo (R$)",
     })
     editado_custos = st.data_editor(
         visao, hide_index=True, width="stretch", height=440, key=f"custos_{cliente_id}",
-        disabled=["produto_id", "SKU", "Produto", "Preço venda (R$)"],
+        disabled=["produto_id", "SKU", "Produto", "Vendidos", "Preço médio de venda (R$)"],
         column_config={
             "produto_id": None,
-            "Preço venda (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Vendidos": st.column_config.NumberColumn(
+                format="%.0f", help="Unidades vendidas no histórico (todos os canais)."),
+            "Preço médio de venda (R$)": st.column_config.NumberColumn(
+                format="R$ %.2f",
+                help="Média dos preços reais de venda (dos pedidos), somando os marketplaces."),
             "Preço custo (R$)": st.column_config.NumberColumn(format="R$ %.2f", min_value=0),
         },
     )
