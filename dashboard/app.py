@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 
 from core import metricas
 from core.formatos import inteiro, moeda, pct
+from dashboard.comum import exigir_senha, selecionar_cliente
 
 load_dotenv()
 
@@ -30,26 +31,6 @@ COR_GRADE = "#e1e0d9"
 st.set_page_config(page_title="Métricas — Margem Real", page_icon="📊", layout="wide")
 
 
-def exigir_senha() -> None:
-    senha = os.getenv("APP_SENHA", "").strip()
-    if not senha or st.session_state.get("autenticado"):
-        return
-    st.title("📊 Métricas — Margem Real")
-    with st.form("login"):
-        digitada = st.text_input("Senha de acesso", type="password")
-        if st.form_submit_button("Entrar"):
-            if digitada == senha:
-                st.session_state["autenticado"] = True
-                st.rerun()
-            st.error("Senha incorreta.")
-    st.stop()
-
-
-@st.cache_data(ttl=60)
-def carregar_clientes():
-    return metricas.listar_clientes()
-
-
 @st.cache_data(ttl=60)
 def carregar_analitico(cliente_id: int, ini: date, fim: date, canais: tuple):
     df = metricas.analitico_pedidos(cliente_id, ini, fim, list(canais) or None)
@@ -59,20 +40,10 @@ def carregar_analitico(cliente_id: int, ini: date, fim: date, canais: tuple):
 
 exigir_senha()
 
-clientes = carregar_clientes()
-if clientes.empty:
-    st.warning(
-        "Banco vazio. Rode `python -m scripts.seed_demo` (dados de demonstração) "
-        "ou o conector do Bling (`python -m conector.sincronizar --cliente <id>`)."
-    )
-    st.stop()
-
 # ── Filtros (sidebar) ─────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 📊 Métricas")
-    nomes = dict(zip(clientes["nome"], clientes["id"]))
-    nome_cliente = st.selectbox("Cliente", list(nomes))
-    cliente_id = int(nomes[nome_cliente])
+    cliente_id, nome_cliente = selecionar_cliente()
 
     preset = st.radio("Período", ["7 dias", "30 dias", "90 dias", "Personalizado"], index=1)
     hoje = date.today()

@@ -165,6 +165,27 @@ class Credencial(Base):
     )
 
 
+class RegraComissao(Base):
+    """Faixa de comissão por canal, editável pela interface, por cliente.
+
+    Uma linha por faixa: a comissão de um item é
+    `valor_unitario * percentual + fixo_por_item`, escolhida pela primeira
+    faixa cujo `valor_ate` cobre o valor unitário (valor_ate nulo = sem teto).
+    O `canal` casa por "contém" no nome do canal do pedido (ex.: "shopee").
+    Sem regras para um cliente, o cálculo usa os padrões de core/comissoes.py.
+    """
+
+    __tablename__ = "regras_comissao"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cliente_id: Mapped[int] = mapped_column(ForeignKey("clientes.id"), index=True)
+    canal: Mapped[str] = mapped_column(String(120))
+    valor_ate: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    percentual: Mapped[float] = mapped_column(Numeric(6, 4), default=0)  # fração 0..1
+    fixo_por_item: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    ordem: Mapped[int] = mapped_column(Integer, default=0)
+
+
 def criar_tabelas() -> None:
     Base.metadata.create_all(engine)
 

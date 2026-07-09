@@ -8,7 +8,7 @@ from datetime import date
 import pandas as pd
 from sqlalchemy import text
 
-from core.comissoes import comissao_por_item
+from core.comissoes import carregar_regras, comissao_por_item
 from core.margem import aplicar_margem
 from db.database import engine
 
@@ -114,9 +114,11 @@ def analitico_pedidos(cliente_id: int, dt_ini: date, dt_fim: date,
     if base.empty:
         df["comissao_estimada"] = 0.0
     else:
+        regras = carregar_regras(cliente_id)
         base["comissao_item"] = base.apply(
             lambda linha: comissao_por_item(
-                linha["canal_nome"], float(linha["valor_unitario"]), float(linha["quantidade"])
+                regras, linha["canal_nome"],
+                float(linha["valor_unitario"]), float(linha["quantidade"])
             ) or 0.0,
             axis=1,
         )

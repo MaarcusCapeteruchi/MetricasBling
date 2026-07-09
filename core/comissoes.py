@@ -4,11 +4,15 @@ Usada quando o pedido NÃO traz a comissão real na tabela taxas_pedido
 (origem 'fonte'). Para o Bling do piloto isso é sempre: a conta não recebe
 as taxas dos marketplaces (campo `taxas` vem zerado).
 
-Estrutura por canal: lista de faixas por VALOR UNITÁRIO DO ITEM, no formato
-(limite_superior, percentual, fixo_por_unidade); limite None = sem teto.
-A comissão do pedido é a soma das comissões de cada item.
+As comissões ficam na tabela `regras_comissao`, POR CLIENTE, editáveis pela
+tela de Configurações do dashboard. Enquanto um cliente não tem regras
+próprias, o cálculo usa os PADRÕES abaixo (TABELA_COMISSOES).
 
-Fontes (pesquisa multi-fonte com verificação, 09/jul/2026):
+Estrutura de cada canal: lista de faixas por VALOR UNITÁRIO DO ITEM, no
+formato (limite_superior, percentual, fixo_por_unidade); limite None = sem
+teto. A comissão do pedido é a soma das comissões de cada item.
+
+Fontes dos padrões (pesquisa multi-fonte com verificação, 09/jul/2026):
 
 - Shopee — OFICIAL, vigente desde 01/03/2026 (vendedores CNPJ):
   seller.shopee.com.br/edu/article/26839. Comissão variável por valor do
@@ -17,39 +21,28 @@ Fontes (pesquisa multi-fonte com verificação, 09/jul/2026):
   >> Conferir se o piloto vende como CNPJ (a tabela CPF difere). <<
 
 - Mercado Livre — OFICIAL: anúncio Clássico custa entre 10% e 14% conforme
-  a categoria (mercadolivre.com.br/ajuda/quanto-custa-vender-um-produto_1338).
-  O % exato de calçados fica na página logada do vendedor — usamos 14%
-  (teto, conservador) até confirmar. Custo fixo por unidade só para itens
-  baratos (abaixo de ~R$79) — não atinge o piloto (itens R$85-130).
+  a categoria. Usamos 14% (teto, conservador) até confirmar o % de calçados
+  no painel logado do vendedor.
 
 - TikTok Shop — os Termos confirmam comissão + taxa de transação em % por
-  pedido, mas os percentuais NÃO são públicos (só na Central do Vendedor
-  logada). 12% é PLACEHOLDER — confirmar na conta do cliente.
+  pedido, mas os percentuais NÃO são públicos. 12% é PLACEHOLDER.
 """
+from sqlalchemy import select
 
+from db.database import Sessao
+from db.models import RegraComissao
+
+# Padrões de fábrica (usados quando o cliente ainda não editou suas regras).
 TABELA_COMISSOES = {
-    "shopee": {
-        "faixas": [
-            (79.99, 0.20, 4.00),
-            (99.99, 0.14, 16.00),
-            (199.99, 0.14, 20.00),
-            (None, 0.14, 26.00),
-        ],
-        "vigencia": "2026-03-01",
-        "status": "oficial",
-    },
-    "mercado livre": {
-        "faixas": [(None, 0.14, 0.00)],
-        "status": "estimado — confirmar % de calçados no painel do vendedor",
-    },
-    "tiktok": {
-        "faixas": [(None, 0.12, 0.00)],
-        "status": "PLACEHOLDER — % não é público; confirmar na Central do Vendedor",
-    },
-    "magalu": {
-        "faixas": [(None, 0.128, 0.00)],
-        "status": "estimado",
-    },
+    "shopee": [
+        (79.99, 0.20, 4.00),
+        (99.99, 0.14, 16.00),
+        (199.99, 0.14, 20.00),
+        (None, 0.14, 26.00),
+    ],
+    "mercado livre": [(None, 0.14, 0.00)],
+    "tiktok": [(None, 0.12, 0.00)],
+    "magalu": [(None, 0.128, 0.00)],
 }
 
 # Imposto estimado sobre a receita quando o dado não existir (ex.: Simples).
@@ -57,27 +50,112 @@ TABELA_COMISSOES = {
 IMPOSTO_PADRAO_PCT = 0.0
 
 
-def regras_para_canal(nome_canal: str | None) -> dict | None:
-    """Regra de comissão para o canal, ou None se não é marketplace mapeado."""
-    if not nome_canal:
-        return None
+def regras_padrao() -> dict[str, list[tuple]]:
+    """Cópia dos padrões de fábrica, no formato {canal: [(limite, pct, fixo)]}."""
+    return {canal: list(faixas) for canal, faixas in TABELA_COMISSOES.items()}
+
+
+def carregar_regras(cliente_id: int) -> dict[str, list[tuple]]:
+    """Regras de comissão do cliente (do banco); cai nos padrões se não houver."""
+    with Sessao() as sessao:
+        linhas = sessao.execute(
+            select(RegraComissao)
+            .where(RegraComissao.cliente_id == cliente_id)
+            .order_by(RegraComissao.canal, RegraComissao.ordem)
+        ).scalars().all()
+
+    if not linhas:
+        return regras_padrao()
+
+    regras: dict[str, list[tuple]] = {}
+    for linha in linhas:
+        limite = float(linha.valor_ate) if linha.valor_ate is not None else None
+        regras.setdefault(linha.canal.lower(), []).append(
+            (limite, float(linha.percentual), float(linha.fixo_por_item))
+        )
+    return regras
+
+
+def _faixas_do_canal(regras: dict[str, list[tuple]], nome_canal: str) -> list[tuple] | None:
     nome = nome_canal.lower()
-    for chave, regra in TABELA_COMISSOES.items():
+    for chave, faixas in regras.items():
         if chave in nome:
-            return regra
+            return faixas
     return None
 
 
-def comissao_por_item(nome_canal: str | None, valor_unitario: float,
-                      quantidade: float = 1) -> float | None:
-    """Comissão estimada para um item do pedido, pela faixa do valor unitário.
+def comissao_por_item(regras: dict[str, list[tuple]], nome_canal: str | None,
+                      valor_unitario: float, quantidade: float = 1) -> float | None:
+    """Comissão estimada de um item, pela faixa do valor unitário.
 
-    Retorna None quando o canal não tem regra (ex.: site próprio).
+    `regras` vem de carregar_regras(cliente_id). Retorna None quando o canal
+    não tem regra (ex.: site próprio) — nesse caso não há comissão a estimar.
     """
-    regra = regras_para_canal(nome_canal)
-    if not regra:
+    if not nome_canal:
         return None
-    for limite, percentual, fixo in regra["faixas"]:
+    faixas = _faixas_do_canal(regras, nome_canal)
+    if not faixas:
+        return None
+    # Faixas sem teto (limite None) são avaliadas por último.
+    ordenadas = sorted(faixas, key=lambda f: (f[0] is None, f[0] if f[0] is not None else 0))
+    for limite, percentual, fixo in ordenadas:
         if limite is None or valor_unitario <= limite:
             return quantidade * (valor_unitario * percentual + fixo)
     return None
+
+
+# ── Persistência para a tela de Configurações ────────────────────────────────
+
+def regras_para_edicao(cliente_id: int) -> list[dict]:
+    """Regras do cliente como linhas amigáveis para o editor (percentual em %)."""
+    regras = carregar_regras(cliente_id)
+    linhas = []
+    for canal, faixas in regras.items():
+        for limite, percentual, fixo in faixas:
+            linhas.append({
+                "Canal": canal,
+                "Vale até R$ (vazio = sem limite)": limite,
+                "Comissão (%)": round(percentual * 100, 2),
+                "Taxa fixa por item (R$)": fixo,
+            })
+    return linhas
+
+
+def salvar_regras(cliente_id: int, linhas: list[dict]) -> int:
+    """Substitui as regras do cliente pelas linhas do editor. Retorna a contagem."""
+    registros = []
+    contadores: dict[str, int] = {}
+    for linha in linhas:
+        canal = str(linha.get("Canal") or "").strip().lower()
+        if not canal:
+            continue
+        percentual = linha.get("Comissão (%)")
+        percentual = float(percentual) / 100 if percentual not in (None, "") else 0.0
+        fixo = linha.get("Taxa fixa por item (R$)")
+        fixo = float(fixo) if fixo not in (None, "") else 0.0
+        limite = linha.get("Vale até R$ (vazio = sem limite)")
+        limite = float(limite) if limite not in (None, "") else None
+
+        ordem = contadores.get(canal, 0)
+        contadores[canal] = ordem + 1
+        registros.append(RegraComissao(
+            cliente_id=cliente_id, canal=canal, valor_ate=limite,
+            percentual=percentual, fixo_por_item=fixo, ordem=ordem,
+        ))
+
+    with Sessao() as sessao:
+        sessao.query(RegraComissao).filter(
+            RegraComissao.cliente_id == cliente_id
+        ).delete()
+        sessao.add_all(registros)
+        sessao.commit()
+    return len(registros)
+
+
+def restaurar_padrao(cliente_id: int) -> None:
+    """Apaga as regras do cliente — volta a usar os padrões de fábrica."""
+    with Sessao() as sessao:
+        sessao.query(RegraComissao).filter(
+            RegraComissao.cliente_id == cliente_id
+        ).delete()
+        sessao.commit()

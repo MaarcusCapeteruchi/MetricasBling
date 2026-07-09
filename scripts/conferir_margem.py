@@ -13,7 +13,7 @@ from datetime import date
 from sqlalchemy import select
 
 from core import metricas
-from core.comissoes import comissao_por_item
+from core.comissoes import carregar_regras, comissao_por_item
 from db.database import Sessao
 from db.models import Canal, ItemPedido, Pedido, Produto, TaxaPedido
 
@@ -68,8 +68,9 @@ def main() -> None:
     comissao = taxas["comissao"]
     origem = "fonte"
     if comissao == 0:
+        regras = carregar_regras(args.cliente)
         estimada = sum(
-            comissao_por_item(canal_nome, valor_unitario, quantidade) or 0.0
+            comissao_por_item(regras, canal_nome, valor_unitario, quantidade) or 0.0
             for quantidade, valor_unitario in itens_do_pedido
         )
         if estimada > 0:

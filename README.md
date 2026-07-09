@@ -40,6 +40,20 @@ streamlit run dashboard/app.py    # abre em http://localhost:8501
 Sem `DATABASE_URL` no `.env`, usa-se um SQLite local (`dados_demo.db`) — mesmo
 modelo de dados do Postgres.
 
+### Configurações pela interface (sem editar código)
+
+A página **⚙️ Configurações** (menu lateral do dashboard) deixa o usuário
+ajustar, por cliente e sem tocar no código:
+
+- **Comissões por canal** — faixas por valor do item (percentual + taxa fixa);
+  gravadas na tabela `regras_comissao`. Enquanto o cliente não edita, valem os
+  padrões de `core/comissoes.py` (Shopee oficial mar/2026; ML e TikTok
+  estimados). Botão para restaurar o padrão.
+- **Custos dos produtos** — edição direta do preço de custo, com busca. Para
+  cargas grandes, use `scripts/importar_custos.py`.
+
+Ao salvar, o painel recalcula a margem na hora.
+
 ## Plugar o Bling real (cliente piloto)
 
 1. **Registrar o app** na Central de Extensões do Bling, com escopos
