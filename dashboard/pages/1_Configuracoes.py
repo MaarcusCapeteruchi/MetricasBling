@@ -173,22 +173,27 @@ with aba_custos:
         ["produto_id", "SKU", "Produto", "Vendidos"]
         + colunas_canal + ["Média geral (R$)", "Preço custo (R$)"]
     ]
+    # "—" no lugar de célula vazia: sem isso o grid mostra "None", que parece erro
+    for coluna in colunas_canal + ["Média geral (R$)"]:
+        visao[coluna] = visao[coluna].map(
+            lambda v: "—" if pd.isna(v) else moeda(float(v))
+        )
 
     config_colunas = {
         "produto_id": None,
         "Vendidos": st.column_config.NumberColumn(
             format="%.0f", help="Unidades vendidas no histórico (todos os canais)."),
-        "Média geral (R$)": st.column_config.NumberColumn(
-            format="R$ %.2f",
-            help="Média dos preços reais de venda entre todos os marketplaces."),
+        "Média geral (R$)": st.column_config.TextColumn(
+            help="Média dos preços reais de venda entre todos os marketplaces. "
+                 "— significa que o produto ainda não vendeu."),
         "Preço custo (R$)": st.column_config.NumberColumn(
             format="R$ %.2f", min_value=0,
             help="Quanto o produto custou para o cliente. Única coluna editável."),
     }
     for canal, coluna in zip(canais_produto, colunas_canal):
-        config_colunas[coluna] = st.column_config.NumberColumn(
-            format="R$ %.2f",
-            help=f"Preço médio de venda real em {canal}. Vazio = sem vendas no canal.")
+        config_colunas[coluna] = st.column_config.TextColumn(
+            help=f"Preço médio de venda real em {canal}. "
+                 "— significa que o produto ainda não vendeu neste canal.")
 
     editado_custos = st.data_editor(
         visao, hide_index=True, width="stretch", height=440, key=f"custos_{cliente_id}",
