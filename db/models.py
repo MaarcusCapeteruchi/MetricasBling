@@ -165,6 +165,24 @@ class Credencial(Base):
     )
 
 
+class Usuario(Base):
+    """Usuário do painel. papel 'equipe' vê todos os clientes; papel 'cliente'
+    (com cliente_id preenchido) enxerga só o próprio cliente — a base do
+    acesso dos clientes finais. Senha guardada com hash PBKDF2 (nunca em claro)."""
+
+    __tablename__ = "usuarios"
+    __table_args__ = (UniqueConstraint("usuario"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nome: Mapped[str] = mapped_column(String(120))
+    usuario: Mapped[str] = mapped_column(String(60))
+    senha_hash: Mapped[str] = mapped_column(String(200))
+    papel: Mapped[str] = mapped_column(String(20), default="equipe")  # equipe | cliente
+    cliente_id: Mapped[int | None] = mapped_column(ForeignKey("clientes.id"))
+    ativo: Mapped[bool] = mapped_column(default=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Preferencia(Base):
     """Preferências simples por cliente (chave/valor). Ex.: perfil de vendedor
     na Shopee (cnpj/cpf). Genérica para não criar colunas a cada ajuste."""

@@ -57,6 +57,16 @@ ajustar, por cliente e sem tocar no código:
   cargas grandes, use `scripts/importar_custos.py`.
 - **Clientes** — lista os clientes e permite **excluir** um deles (com todos os
   seus dados) pela interface, protegido por confirmação (digitar o nome).
+- **Usuários** — contas de acesso com papel **Equipe** (vê tudo) ou **Cliente**
+  (vê só o painel do cliente vinculado; sem Configurações). Senhas com hash
+  PBKDF2. O usuário `admin` + APP_SENHA é o acesso mestre, sempre disponível.
+
+### Login e celular
+
+O painel exige login (usuário + senha) sempre que `APP_SENHA` está definida ou
+existem usuários cadastrados. A interface é responsiva: no celular os KPIs
+empilham e o layout se ajusta. Obs.: recarregar a página (F5) encerra a sessão
+do Streamlit — é preciso entrar de novo.
 
 Ao salvar, o painel recalcula a margem na hora.
 

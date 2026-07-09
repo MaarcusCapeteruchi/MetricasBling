@@ -13,23 +13,25 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
-from core import catalogo, clientes, comissoes, metricas, preferencias
+from core import catalogo, clientes, comissoes, metricas, preferencias, usuarios
 from core.formatos import moeda
-from dashboard.comum import exigir_senha, selecionar_cliente
+from dashboard.comum import aplicar_estilo, exigir_equipe, exigir_login, selecionar_cliente
 
 load_dotenv()
 
 st.set_page_config(page_title="Configurações — Métricas", page_icon="⚙️", layout="wide")
 
-exigir_senha()
+usuario_logado = exigir_login()
+exigir_equipe(usuario_logado)
+aplicar_estilo()
 
 st.title("⚙️ Configurações")
 cliente_id, nome_cliente = selecionar_cliente()
 st.caption(f"As configurações abaixo valem para **{nome_cliente}**.")
 
-aba_comissoes, aba_custos, aba_estimativas, aba_clientes = st.tabs(
+aba_comissoes, aba_custos, aba_estimativas, aba_clientes, aba_usuarios = st.tabs(
     ["💸 Comissões por canal", "🏷️ Custos dos produtos",
-     "🧾 Impostos e custos", "👥 Clientes"]
+     "🧾 Impostos e custos", "👥 Clientes", "🔐 Usuários"]
 )
 
 # ── Comissões ────────────────────────────────────────────────────────────
@@ -316,3 +318,70 @@ with aba_clientes:
 
     if not pode_excluir and confirmacao.strip():
         st.caption("O nome digitado não confere — a exclusão fica bloqueada.")
+
+# ── Usuários ─────────────────────────────────────────────────────────────
+with aba_usuarios:
+    st.markdown(
+        "Contas de acesso ao painel. **Equipe** enxerga todos os clientes e as "
+        "Configurações; **Cliente** enxerga apenas o painel do cliente vinculado. "
+        "O usuário `admin` (senha mestre dos Secrets) sempre funciona — é a "
+        "garantia de nunca ficar trancado para fora."
+    )
+
+    lista_usuarios = usuarios.listar()
+    if lista_usuarios:
+        clientes_df = metricas.listar_clientes()
+        nomes_clientes = dict(zip(clientes_df["id"], clientes_df["nome"]))
+        st.dataframe(
+            [{"Nome": u["nome"], "Usuário": u["usuario"],
+              "Papel": "Equipe" if u["papel"] == "equipe" else "Cliente",
+              "Cliente vinculado": nomes_clientes.get(u["cliente_id"], "—"),
+              "Ativo": "sim" if u["ativo"] else "não"} for u in lista_usuarios],
+            hide_index=True, width="stretch",
+        )
+    else:
+        st.info("Nenhum usuário cadastrado ainda — só o acesso mestre `admin` funciona.")
+
+    st.divider()
+    col_novo, col_gerir = st.columns(2)
+
+    with col_novo:
+        st.subheader("Criar usuário")
+        with st.form("novo_usuario", clear_on_submit=True):
+            nome_novo = st.text_input("Nome completo")
+            login_novo = st.text_input("Usuário (para entrar)")
+            senha_nova = st.text_input("Senha (mín. 6 caracteres)", type="password")
+            papel_novo = st.radio("Papel", ["equipe", "cliente"], horizontal=True,
+                                  format_func=lambda p: "Equipe" if p == "equipe" else "Cliente")
+            clientes_df = metricas.listar_clientes()
+            opcoes_cliente = dict(zip(clientes_df["nome"], clientes_df["id"]))
+            vinculo_nome = st.selectbox(
+                "Cliente vinculado (para papel Cliente)", ["—"] + list(opcoes_cliente))
+            if st.form_submit_button("➕ Criar", type="primary"):
+                erro = usuarios.criar(
+                    nome_novo, login_novo, senha_nova, papel_novo,
+                    opcoes_cliente.get(vinculo_nome),
+                )
+                if erro:
+                    st.error(erro)
+                else:
+                    st.success(f"Usuário '{login_novo}' criado.")
+                    st.rerun()
+
+    with col_gerir:
+        st.subheader("Trocar senha / excluir")
+        if lista_usuarios:
+            mapa = {f"{u['nome']} ({u['usuario']})": u["id"] for u in lista_usuarios}
+            alvo = st.selectbox("Usuário", list(mapa))
+            alvo_id = mapa[alvo]
+            nova = st.text_input("Nova senha", type="password", key="nova_senha_usuario")
+            col_a, col_b = st.columns(2)
+            if col_a.button("🔑 Trocar senha"):
+                erro = usuarios.trocar_senha(alvo_id, nova)
+                st.error(erro) if erro else st.success("Senha alterada.")
+            if col_b.button("🗑️ Excluir usuário"):
+                usuarios.excluir(alvo_id)
+                st.success("Usuário excluído.")
+                st.rerun()
+        else:
+            st.caption("Crie o primeiro usuário ao lado.")

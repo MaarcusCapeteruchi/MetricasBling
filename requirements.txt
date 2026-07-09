@@ -1,6 +1,6 @@
 # Mudanças neste arquivo forçam rebuild completo no Streamlit Cloud
 # (necessário quando módulos de core/ mudam — o push sozinho não os recarrega)
-# rebuild: 2026-07-09-b
+# rebuild: 2026-07-09-c
 requests>=2.32
 sqlalchemy>=2.0
 psycopg2-binary>=2.9

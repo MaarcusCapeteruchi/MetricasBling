@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 from core import metricas
 from core.formatos import inteiro, moeda, pct
-from dashboard.comum import exigir_senha, selecionar_cliente
+from dashboard.comum import aplicar_estilo, exigir_login, selecionar_cliente
 
 load_dotenv()
 
@@ -38,7 +38,8 @@ def carregar_analitico(cliente_id: int, ini: date, fim: date, canais: tuple):
     return df, produtos
 
 
-exigir_senha()
+exigir_login()
+aplicar_estilo()
 
 # ── Filtros (sidebar) ─────────────────────────────────────────────────────
 with st.sidebar:
