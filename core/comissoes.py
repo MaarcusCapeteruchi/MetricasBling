@@ -14,6 +14,7 @@ preciso, por categoria/plano) antes de apresentar números ao cliente.
 TABELA_COMISSOES = {
     "shopee": {"percentual": 0.14, "fixo_por_item": 4.00},
     "mercado livre": {"percentual": 0.12, "fixo_por_item": 0.00},
+    "tiktok": {"percentual": 0.12, "fixo_por_item": 0.00},
     "magalu": {"percentual": 0.128, "fixo_por_item": 0.00},
 }
 
