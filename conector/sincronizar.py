@@ -29,6 +29,12 @@ from db.upsert import upsert_por_id_externo
 
 FONTE = "bling"
 
+# A API v3 devolve a situação como código; nomes das situações padrão do Bling.
+SITUACOES_BLING = {
+    6: "Em aberto", 9: "Atendido", 12: "Cancelado", 15: "Em andamento",
+    18: "Venda agenciada", 21: "Em digitação", 24: "Verificado",
+}
+
 
 def _num(valor, padrao=0.0) -> float:
     try:
@@ -54,14 +60,19 @@ def _extrair_custo(produto_json: dict) -> float | None:
 def sincronizar_produtos(api: BlingAPI, sessao, cliente_id: int) -> int:
     total = 0
     for item in api.listar_paginado("/produtos"):
+        valores = {
+            "sku": item.get("codigo"),
+            "nome": item.get("nome") or f"Produto {item['id']}",
+            "preco_venda": _num(item.get("preco"), None),
+        }
+        # Custo zerado/ausente na fonte não sobrescreve custo importado por
+        # planilha (scripts/importar_custos.py) — o canônico pode ser mais
+        # rico que a origem.
+        custo = _extrair_custo(item)
+        if custo:
+            valores["preco_custo"] = custo
         upsert_por_id_externo(
-            sessao, Produto, cliente_id, FONTE, item["id"],
-            {
-                "sku": item.get("codigo"),
-                "nome": item.get("nome") or f"Produto {item['id']}",
-                "preco_venda": _num(item.get("preco"), None),
-                "preco_custo": _extrair_custo(item),
-            },
+            sessao, Produto, cliente_id, FONTE, item["id"], valores
         )
         total += 1
         if total % 100 == 0:
@@ -94,7 +105,9 @@ def _mapear_pedido(sessao, cliente_id: int, detalhe: dict) -> None:
         {
             "numero": str(detalhe.get("numero") or detalhe.get("numeroLoja") or detalhe["id"]),
             "data": date.fromisoformat(detalhe["data"][:10]),
-            "situacao": str(situacao.get("valor") or situacao.get("id") or ""),
+            "situacao": SITUACOES_BLING.get(
+                situacao.get("id"), str(situacao.get("valor") or situacao.get("id") or "")
+            ),
             "valor_total": _num(detalhe.get("total")),
             "canal_id": canal.id if canal else None,
             "dados_cru": detalhe,
@@ -152,9 +165,9 @@ def sincronizar_pedidos(api: BlingAPI, sessao, cliente_id: int, desde: date,
             print("\n=== PEDIDO CRU (JSON) — inspecione os campos de taxa/comissão ===\n")
             print(json.dumps(detalhe, indent=2, ensure_ascii=False))
             print("\n=== O que procurar ===")
-            print("• `taxas.taxaComissao` / `taxas.custoFrete`: comissão real do marketplace.")
-            print("  → Se existirem, a margem real é leitura pura (melhor cenário).")
-            print("  → Se não existirem, ajuste a tabela em core/comissoes.py (plano B).")
+            print("- `taxas.taxaComissao` / `taxas.custoFrete`: comissão real do marketplace.")
+            print("  -> Se existirem, a margem real é leitura pura (melhor cenário).")
+            print("  -> Se não existirem, ajuste a tabela em core/comissoes.py (plano B).")
             return 0
 
         _mapear_pedido(sessao, cliente_id, detalhe)
