@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
-from core import catalogo, clientes, comissoes, metricas
+from core import catalogo, clientes, comissoes, metricas, preferencias
 from core.formatos import moeda
 from dashboard.comum import exigir_senha, selecionar_cliente
 
@@ -27,8 +27,9 @@ st.title("⚙️ Configurações")
 cliente_id, nome_cliente = selecionar_cliente()
 st.caption(f"As configurações abaixo valem para **{nome_cliente}**.")
 
-aba_comissoes, aba_custos, aba_clientes = st.tabs(
-    ["💸 Comissões por canal", "🏷️ Custos dos produtos", "👥 Clientes"]
+aba_comissoes, aba_custos, aba_estimativas, aba_clientes = st.tabs(
+    ["💸 Comissões por canal", "🏷️ Custos dos produtos",
+     "🧾 Impostos e custos", "👥 Clientes"]
 )
 
 # ── Comissões ────────────────────────────────────────────────────────────
@@ -214,6 +215,52 @@ with aba_custos:
     st.caption(
         "Dica: para muitos produtos de uma vez, use "
         "`python -m scripts.importar_custos --cliente <id> --arquivo custos.csv --prefixo`."
+    )
+
+# ── Impostos e custos estimados ──────────────────────────────────────────
+with aba_estimativas:
+    st.markdown(
+        "Valores usados quando o pedido **não** traz a taxa da fonte — o dado "
+        "real do Bling/marketplace **sempre tem prioridade**; a estimativa só "
+        "preenche o que falta. Deixe **0** para não estimar."
+    )
+
+    imposto_atual = preferencias.obter_float(cliente_id, "imposto_pct")
+    frete_atual = preferencias.obter_float(cliente_id, "frete_estimado_pedido")
+    operacional_atual = preferencias.obter_float(cliente_id, "custo_operacional_pedido")
+
+    imposto_novo = st.number_input(
+        "Imposto (% sobre a receita do pedido)",
+        value=imposto_atual, min_value=0.0, max_value=100.0, step=0.5,
+        help="Alíquota efetiva do cliente (ex.: Simples Nacional). Aplica em "
+             "todos os pedidos sem imposto informado pela fonte.",
+    )
+    frete_novo = st.number_input(
+        "Frete estimado por pedido (R$)",
+        value=frete_atual, min_value=0.0, step=1.0,
+        help="Custo de frete do vendedor quando a fonte não informa. "
+             "Atenção: na Shopee o frete já está embutido na comissão — "
+             "só preencha se algum canal cobrar frete à parte (ex.: Mercado Envios).",
+    )
+    operacional_novo = st.number_input(
+        "Custo operacional por pedido (R$)",
+        value=operacional_atual, min_value=0.0, step=0.5,
+        help="Embalagem, etiqueta, mão de obra por pedido. Entra como 'Outras' "
+             "na composição de taxas.",
+    )
+
+    if st.button("💾 Salvar impostos e custos", type="primary"):
+        preferencias.definir(cliente_id, "imposto_pct", str(imposto_novo))
+        preferencias.definir(cliente_id, "frete_estimado_pedido", str(frete_novo))
+        preferencias.definir(cliente_id, "custo_operacional_pedido", str(operacional_novo))
+        st.cache_data.clear()
+        st.success("Salvo. O painel e o gráfico de taxas já refletem os novos valores.")
+        st.rerun()
+
+    st.info(
+        "Estes valores aparecem no gráfico **\"Para onde vão as taxas\"** do "
+        "painel: imposto vira a barra *Imposto*, frete vira *Frete* e o custo "
+        "operacional vira *Outras*.", icon="📊",
     )
 
 # ── Clientes ─────────────────────────────────────────────────────────────

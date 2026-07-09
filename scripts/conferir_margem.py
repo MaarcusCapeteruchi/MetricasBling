@@ -12,7 +12,7 @@ from datetime import date
 
 from sqlalchemy import select
 
-from core import metricas
+from core import metricas, preferencias
 from core.comissoes import carregar_regras, comissao_por_item
 from db.database import Sessao
 from db.models import Canal, ItemPedido, Pedido, Produto, TaxaPedido
@@ -64,6 +64,21 @@ def main() -> None:
         tipo = taxa.tipo if taxa.tipo in taxas else "outros"
         taxas[tipo] += float(taxa.valor)
         print(f"    {taxa.tipo:<10} {float(taxa.valor):>10.2f}  ({taxa.origem}: {taxa.descricao})")
+
+    # Estimativas configuradas na tela (mesma regra do painel: fonte vence)
+    receita_pedido = float(pedido.valor_total)
+    imposto_pct = preferencias.obter_float(args.cliente, "imposto_pct")
+    if taxas["imposto"] == 0 and imposto_pct > 0:
+        taxas["imposto"] = round(receita_pedido * imposto_pct / 100, 2)
+        print(f"    imposto estimado ({imposto_pct}% configurado): {taxas['imposto']:.2f}")
+    frete_estimado = preferencias.obter_float(args.cliente, "frete_estimado_pedido")
+    if taxas["frete"] == 0 and frete_estimado > 0:
+        taxas["frete"] = round(frete_estimado, 2)
+        print(f"    frete estimado (configurado): {taxas['frete']:.2f}")
+    operacional = preferencias.obter_float(args.cliente, "custo_operacional_pedido")
+    if taxas["outros"] == 0 and operacional > 0:
+        taxas["outros"] = round(operacional, 2)
+        print(f"    custo operacional (configurado): {taxas['outros']:.2f}")
 
     comissao = taxas["comissao"]
     origem = "fonte"

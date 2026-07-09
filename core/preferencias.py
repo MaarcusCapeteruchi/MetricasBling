@@ -15,6 +15,14 @@ def obter(cliente_id: int, chave: str, padrao: str | None = None) -> str | None:
         return pref.valor if pref else padrao
 
 
+def obter_float(cliente_id: int, chave: str, padrao: float = 0.0) -> float:
+    valor = obter(cliente_id, chave)
+    try:
+        return float(valor) if valor not in (None, "") else padrao
+    except ValueError:
+        return padrao
+
+
 def definir(cliente_id: int, chave: str, valor: str) -> None:
     with Sessao() as sessao:
         pref = sessao.execute(

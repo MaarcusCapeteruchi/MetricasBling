@@ -8,6 +8,7 @@ from datetime import date
 import pandas as pd
 from sqlalchemy import text
 
+from core import preferencias
 from core.comissoes import carregar_regras, comissao_por_item
 from core.margem import aplicar_margem
 from db.database import engine
@@ -100,6 +101,20 @@ def analitico_pedidos(cliente_id: int, dt_ini: date, dt_fim: date,
     if df.empty:
         return df
     df = df.reset_index(drop=True)
+
+    # Estimativas configuradas pelo usuário (tela Configurações → Impostos e
+    # custos). Regra: o dado REAL da fonte sempre vence — a estimativa só
+    # preenche pedidos em que aquele tipo de taxa não veio.
+    imposto_pct = preferencias.obter_float(cliente_id, "imposto_pct")
+    frete_estimado = preferencias.obter_float(cliente_id, "frete_estimado_pedido")
+    operacional = preferencias.obter_float(cliente_id, "custo_operacional_pedido")
+    if imposto_pct > 0:
+        sem = df["imposto"] <= 0
+        df.loc[sem, "imposto"] = (df.loc[sem, "valor_total"] * imposto_pct / 100).round(2)
+    if frete_estimado > 0:
+        df.loc[df["frete"] <= 0, "frete"] = round(frete_estimado, 2)
+    if operacional > 0:
+        df.loc[df["outros"] <= 0, "outros"] = round(operacional, 2)
 
     # Comissão estimada pela tabela de faixas (plano B), calculada por ITEM —
     # é assim que os marketplaces cobram (faixa pelo valor unitário).
