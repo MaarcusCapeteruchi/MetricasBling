@@ -165,6 +165,19 @@ class Credencial(Base):
     )
 
 
+class Preferencia(Base):
+    """Preferências simples por cliente (chave/valor). Ex.: perfil de vendedor
+    na Shopee (cnpj/cpf). Genérica para não criar colunas a cada ajuste."""
+
+    __tablename__ = "preferencias"
+    __table_args__ = (UniqueConstraint("cliente_id", "chave"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cliente_id: Mapped[int] = mapped_column(ForeignKey("clientes.id"), index=True)
+    chave: Mapped[str] = mapped_column(String(60))
+    valor: Mapped[str] = mapped_column(String(200))
+
+
 class RegraComissao(Base):
     """Faixa de comissão por canal, editável pela interface, por cliente.
 

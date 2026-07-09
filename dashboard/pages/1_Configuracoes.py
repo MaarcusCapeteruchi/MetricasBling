@@ -34,10 +34,46 @@ with aba_comissoes:
     st.markdown(
         "Comissão estimada quando o marketplace **não** envia a taxa no pedido. "
         "Cada linha é uma faixa por **valor do item**: a comissão é "
-        "`valor × %  +  taxa fixa`. Use várias faixas para tabelas escalonadas "
-        "(ex.: Shopee). O **canal** casa por parte do nome (ex.: `shopee` cobre "
-        "\"Shopee\")."
+        "`valor × %  +  taxa fixa`."
     )
+
+    # Perfil do vendedor na Shopee — troca as faixas da Shopee pelo preset oficial
+    perfil_atual = comissoes.perfil_shopee(cliente_id)
+    rotulos = {"cnpj": "Vendedor CNPJ", "cpf": "Vendedor CPF"}
+    escolha = st.radio(
+        "Perfil do vendedor na **Shopee**",
+        options=["cnpj", "cpf"],
+        index=0 if perfil_atual == "cnpj" else 1,
+        format_func=lambda p: rotulos[p],
+        horizontal=True,
+        help="Troca automaticamente as faixas da Shopee pela tabela oficial do "
+             "perfil. CNPJ e CPF têm as mesmas faixas; o CPF de alto volume "
+             "(+450 pedidos/90 dias) paga +R$3 por item.",
+    )
+    if escolha != perfil_atual:
+        comissoes.aplicar_perfil_shopee(cliente_id, escolha)
+        st.cache_data.clear()
+        st.session_state.pop(f"editor_comissoes_{cliente_id}", None)
+        st.rerun()
+    if escolha == "cpf":
+        st.caption(
+            "Perfil CPF assume vendedor de **alto volume** (+450 pedidos/90 dias, "
+            "+R$3 por item). Se for CPF de baixo volume, edite a taxa fixa das linhas Shopee."
+        )
+
+    with st.expander("❓ O que é cada coluna"):
+        st.markdown(
+            "- **Canal** — nome da plataforma. Casa por parte do nome: `shopee` "
+            "cobre \"Shopee\", `mercado livre` cobre \"Mercado Livre\" etc. "
+            "Canais sem regra (ex.: site próprio) não têm comissão estimada.\n"
+            "- **Vale até R$ (vazio = sem limite)** — teto do **valor do item** "
+            "para esta faixa valer. Ex.: `99,99` = vale para itens até R$99,99. "
+            "Deixe vazio na última faixa (dali para cima).\n"
+            "- **Comissão (%)** — percentual sobre o valor do item.\n"
+            "- **Taxa fixa por item (R$)** — valor fixo somado por unidade vendida.\n\n"
+            "A comissão de cada item = `valor × Comissão% + Taxa fixa`, pela primeira "
+            "faixa que cobre o valor. A do pedido é a soma dos itens."
+        )
 
     chave = f"editor_comissoes_{cliente_id}"
     if chave not in st.session_state:
@@ -47,11 +83,18 @@ with aba_comissoes:
     editado = st.data_editor(
         df_regras, num_rows="dynamic", width="stretch", key=f"de_{cliente_id}",
         column_config={
-            "Canal": st.column_config.TextColumn(required=True, help="ex.: shopee, mercado livre, tiktok"),
+            "Canal": st.column_config.TextColumn(
+                required=True,
+                help="Nome do canal. Casa por parte do nome (ex.: 'shopee' cobre 'Shopee')."),
             "Vale até R$ (vazio = sem limite)": st.column_config.NumberColumn(
-                format="%.2f", help="Teto do valor do item para esta faixa. Vazio = sem limite."),
-            "Comissão (%)": st.column_config.NumberColumn(format="%.2f", min_value=0, max_value=100),
-            "Taxa fixa por item (R$)": st.column_config.NumberColumn(format="%.2f", min_value=0),
+                format="%.2f",
+                help="Teto do VALOR DO ITEM para esta faixa. Vazio = sem limite (última faixa)."),
+            "Comissão (%)": st.column_config.NumberColumn(
+                format="%.2f", min_value=0, max_value=100,
+                help="Percentual cobrado sobre o valor do item."),
+            "Taxa fixa por item (R$)": st.column_config.NumberColumn(
+                format="%.2f", min_value=0,
+                help="Valor fixo somado por unidade vendida, além do percentual."),
         },
     )
 

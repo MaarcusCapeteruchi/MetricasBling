@@ -48,7 +48,11 @@ ajustar, por cliente e sem tocar no código:
 - **Comissões por canal** — faixas por valor do item (percentual + taxa fixa);
   gravadas na tabela `regras_comissao`. Enquanto o cliente não edita, valem os
   padrões de `core/comissoes.py` (Shopee oficial mar/2026; ML e TikTok
-  estimados). Botão para restaurar o padrão.
+  estimados). Botão para restaurar o padrão. Cada coluna tem tooltip (ícone ?)
+  e há uma legenda expansível.
+- **Perfil do vendedor na Shopee (CNPJ/CPF)** — um seletor troca as faixas da
+  Shopee pela tabela oficial do perfil (o CPF de alto volume, +450 pedidos/90
+  dias, paga +R$3 por item). A escolha fica na tabela `preferencias`.
 - **Custos dos produtos** — edição direta do preço de custo, com busca. Para
   cargas grandes, use `scripts/importar_custos.py`.
 

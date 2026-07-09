@@ -29,17 +29,30 @@ Fontes dos padrões (pesquisa multi-fonte com verificação, 09/jul/2026):
 """
 from sqlalchemy import select
 
+from core import preferencias
 from db.database import Sessao
 from db.models import RegraComissao
 
+# Tabela oficial Shopee (vigente 01/03/2026), por faixa de valor do item.
+# CNPJ e CPF compartilham as faixas base; o vendedor CPF de ALTO VOLUME
+# (acima de 450 pedidos em 90 dias) paga +R$3 por item — refletido no preset
+# CPF. Fonte: seller.shopee.com.br/edu/article/26839 e /18484.
+SHOPEE_CNPJ = [
+    (79.99, 0.20, 4.00),
+    (99.99, 0.14, 16.00),
+    (199.99, 0.14, 20.00),
+    (None, 0.14, 26.00),
+]
+SHOPEE_CPF = [
+    (79.99, 0.20, 7.00),
+    (99.99, 0.14, 19.00),
+    (199.99, 0.14, 23.00),
+    (None, 0.14, 29.00),
+]
+
 # Padrões de fábrica (usados quando o cliente ainda não editou suas regras).
 TABELA_COMISSOES = {
-    "shopee": [
-        (79.99, 0.20, 4.00),
-        (99.99, 0.14, 16.00),
-        (199.99, 0.14, 20.00),
-        (None, 0.14, 26.00),
-    ],
+    "shopee": SHOPEE_CNPJ,
     "mercado livre": [(None, 0.14, 0.00)],
     "tiktok": [(None, 0.12, 0.00)],
     "magalu": [(None, 0.128, 0.00)],
@@ -159,3 +172,43 @@ def restaurar_padrao(cliente_id: int) -> None:
             RegraComissao.cliente_id == cliente_id
         ).delete()
         sessao.commit()
+
+
+# ── Perfil do vendedor na Shopee (CNPJ x CPF) ────────────────────────────────
+
+PERFIL_SHOPEE_CHAVE = "perfil_shopee"
+
+
+def perfil_shopee(cliente_id: int) -> str:
+    """'cnpj' (padrão) ou 'cpf', conforme escolhido na tela de Configurações."""
+    return preferencias.obter(cliente_id, PERFIL_SHOPEE_CHAVE, "cnpj")
+
+
+def _linha_editor(canal: str, limite, percentual: float, fixo: float) -> dict:
+    return {
+        "Canal": canal,
+        "Vale até R$ (vazio = sem limite)": limite,
+        "Comissão (%)": round(percentual * 100, 2),
+        "Taxa fixa por item (R$)": fixo,
+    }
+
+
+def aplicar_perfil_shopee(cliente_id: int, perfil: str) -> None:
+    """Grava o perfil e reescreve APENAS as faixas da Shopee com o preset
+    oficial correspondente (CNPJ ou CPF), preservando os demais canais."""
+    perfil = "cpf" if str(perfil).lower() == "cpf" else "cnpj"
+    preferencias.definir(cliente_id, PERFIL_SHOPEE_CHAVE, perfil)
+
+    preset = SHOPEE_CPF if perfil == "cpf" else SHOPEE_CNPJ
+    regras = carregar_regras(cliente_id)
+
+    linhas = []
+    for canal, faixas in regras.items():
+        if "shopee" in canal:
+            continue  # substituída pelo preset abaixo
+        for limite, pct, fixo in faixas:
+            linhas.append(_linha_editor(canal, limite, pct, fixo))
+    for limite, pct, fixo in preset:
+        linhas.append(_linha_editor("shopee", limite, pct, fixo))
+
+    salvar_regras(cliente_id, linhas)
