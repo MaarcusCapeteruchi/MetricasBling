@@ -12,7 +12,7 @@ from conector.bling_auth import obter_access_token
 
 URL_BASE = "https://api.bling.com.br/Api/v3"
 INTERVALO_MINIMO_S = 0.4
-MAX_TENTATIVAS_429 = 4
+MAX_TENTATIVAS = 5
 
 
 class BlingAPI:
@@ -28,18 +28,26 @@ class BlingAPI:
         self._ultima_chamada = time.monotonic()
 
     def get(self, caminho: str, params: dict | None = None) -> dict:
-        for tentativa in range(1, MAX_TENTATIVAS_429 + 2):
+        ultimo_erro = None
+        for tentativa in range(1, MAX_TENTATIVAS + 1):
             self._respeitar_rate_limit()
             token = obter_access_token(self.sessao, self.cliente_id)
-            resposta = requests.get(
-                f"{URL_BASE}{caminho}",
-                params=params,
-                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-                timeout=60,
-            )
+            try:
+                resposta = requests.get(
+                    f"{URL_BASE}{caminho}",
+                    params=params,
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                    timeout=60,
+                )
+            except (requests.Timeout, requests.exceptions.ConnectionError) as erro:
+                # Oscilação de rede: espera progressiva e tenta de novo
+                ultimo_erro = erro
+                time.sleep(3 * tentativa)
+                continue
 
-            if resposta.status_code == 429 and tentativa <= MAX_TENTATIVAS_429:
-                time.sleep(2 * tentativa)  # backoff progressivo
+            if resposta.status_code == 429:
+                ultimo_erro = RuntimeError("HTTP 429 (rate limit)")
+                time.sleep(2 * tentativa)
                 continue
 
             if resposta.status_code != 200:
@@ -48,7 +56,9 @@ class BlingAPI:
                 )
             return resposta.json()
 
-        raise RuntimeError(f"GET {caminho}: rate limit persistente após retries.")
+        raise RuntimeError(
+            f"GET {caminho}: falha persistente após {MAX_TENTATIVAS} tentativas ({ultimo_erro})"
+        )
 
     def listar_paginado(self, caminho: str, params: dict | None = None, limite: int = 100):
         """Percorre todas as páginas de um endpoint de listagem, item a item."""
