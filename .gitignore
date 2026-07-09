@@ -19,3 +19,7 @@ __pycache__/
 .idea/
 Thumbs.db
 desktop.ini
+
+# Configuração local do assistente (não versionar)
+CLAUDE.md
+.claude/
