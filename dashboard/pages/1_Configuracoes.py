@@ -140,9 +140,10 @@ with aba_custos:
         "campos são só leitura. Use a busca para achar produtos."
     )
     st.caption(
-        "O **preço médio de venda** é calculado das vendas reais (varia por "
-        "marketplace — aqui é a média). Não usamos o preço do cadastro do Bling, "
-        "que costuma vir zerado."
+        "Os preços de venda vêm das **vendas reais** (não do cadastro do Bling, "
+        "que costuma vir zerado): uma coluna com o preço médio em **cada "
+        "marketplace** e uma com a **média geral**. Célula vazia = o produto "
+        "ainda não vendeu naquele canal."
     )
     busca = st.text_input("🔎 Buscar por nome ou SKU", "")
 
@@ -154,22 +155,39 @@ with aba_custos:
             | produtos["sku"].fillna("").str.lower().str.contains(filtro, na=False)
         ]
 
-    visao = produtos.rename(columns={
+    canais_produto = [c for c in produtos.columns if c not in catalogo.COLUNAS_FIXAS]
+    renome = {
         "sku": "SKU", "nome": "Produto", "qtd_vendida": "Vendidos",
-        "preco_medio_real": "Preço médio de venda (R$)", "preco_custo": "Preço custo (R$)",
-    })
+        "preco_medio_real": "Média geral (R$)", "preco_custo": "Preço custo (R$)",
+    }
+    renome.update({canal: f"{canal} (R$)" for canal in canais_produto})
+    colunas_canal = [f"{canal} (R$)" for canal in canais_produto]
+
+    visao = produtos.rename(columns=renome)[
+        ["produto_id", "SKU", "Produto", "Vendidos"]
+        + colunas_canal + ["Média geral (R$)", "Preço custo (R$)"]
+    ]
+
+    config_colunas = {
+        "produto_id": None,
+        "Vendidos": st.column_config.NumberColumn(
+            format="%.0f", help="Unidades vendidas no histórico (todos os canais)."),
+        "Média geral (R$)": st.column_config.NumberColumn(
+            format="R$ %.2f",
+            help="Média dos preços reais de venda entre todos os marketplaces."),
+        "Preço custo (R$)": st.column_config.NumberColumn(
+            format="R$ %.2f", min_value=0,
+            help="Quanto o produto custou para o cliente. Única coluna editável."),
+    }
+    for canal, coluna in zip(canais_produto, colunas_canal):
+        config_colunas[coluna] = st.column_config.NumberColumn(
+            format="R$ %.2f",
+            help=f"Preço médio de venda real em {canal}. Vazio = sem vendas no canal.")
+
     editado_custos = st.data_editor(
         visao, hide_index=True, width="stretch", height=440, key=f"custos_{cliente_id}",
-        disabled=["produto_id", "SKU", "Produto", "Vendidos", "Preço médio de venda (R$)"],
-        column_config={
-            "produto_id": None,
-            "Vendidos": st.column_config.NumberColumn(
-                format="%.0f", help="Unidades vendidas no histórico (todos os canais)."),
-            "Preço médio de venda (R$)": st.column_config.NumberColumn(
-                format="R$ %.2f",
-                help="Média dos preços reais de venda (dos pedidos), somando os marketplaces."),
-            "Preço custo (R$)": st.column_config.NumberColumn(format="R$ %.2f", min_value=0),
-        },
+        disabled=[c for c in visao.columns if c != "Preço custo (R$)"],
+        column_config=config_colunas,
     )
 
     if st.button("💾 Salvar custos", type="primary"):
