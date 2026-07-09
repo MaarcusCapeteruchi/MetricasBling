@@ -13,7 +13,7 @@ from datetime import date
 from sqlalchemy import select
 
 from core import metricas
-from core.comissoes import comissao_para_canal
+from core.comissoes import comissao_por_item
 from db.database import Sessao
 from db.models import Canal, ItemPedido, Pedido, Produto, TaxaPedido
 
@@ -43,7 +43,7 @@ def main() -> None:
     print(f"  Receita (valor_total): {float(pedido.valor_total):>10.2f}")
 
     custo = 0.0
-    qtd_itens = 0.0
+    itens_do_pedido: list[tuple[float, float]] = []  # (quantidade, valor_unitario)
     print("  Itens:")
     for item in sessao.execute(
         select(ItemPedido).where(ItemPedido.pedido_id == pedido.id)
@@ -52,7 +52,7 @@ def main() -> None:
         custo_unit = float(produto.preco_custo or 0) if produto else 0.0
         custo_item = float(item.quantidade) * custo_unit
         custo += custo_item
-        qtd_itens += float(item.quantidade)
+        itens_do_pedido.append((float(item.quantidade), float(item.valor_unitario)))
         print(f"    {item.descricao[:44]:<46} {float(item.quantidade):>4.0f} x "
               f"venda {float(item.valor_unitario):>8.2f} | custo {custo_unit:>8.2f}")
 
@@ -68,14 +68,14 @@ def main() -> None:
     comissao = taxas["comissao"]
     origem = "fonte"
     if comissao == 0:
-        regra = comissao_para_canal(canal_nome)
-        if regra:
-            comissao = round(
-                float(pedido.valor_total) * regra["percentual"]
-                + qtd_itens * regra["fixo_por_item"], 2,
-            )
+        estimada = sum(
+            comissao_por_item(canal_nome, valor_unitario, quantidade) or 0.0
+            for quantidade, valor_unitario in itens_do_pedido
+        )
+        if estimada > 0:
+            comissao = round(estimada, 2)
             origem = "tabela_comissoes"
-            print(f"    comissão estimada pela tabela ({canal_nome}): {comissao:.2f}")
+            print(f"    comissão estimada pela tabela de faixas ({canal_nome}): {comissao:.2f}")
 
     receita = float(pedido.valor_total)
     margem_manual = round(

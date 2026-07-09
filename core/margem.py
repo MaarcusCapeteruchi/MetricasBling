@@ -12,25 +12,23 @@ dashboard: qualquer front futuro reaproveita este módulo intacto.
 """
 import pandas as pd
 
-from core.comissoes import IMPOSTO_PADRAO_PCT, comissao_para_canal
+from core.comissoes import IMPOSTO_PADRAO_PCT
 
 
 def aplicar_margem(df: pd.DataFrame) -> pd.DataFrame:
-    """Espera colunas: valor_total, comissao_fonte, frete, imposto,
-    custo_produtos, qtd_itens, canal_nome. Adiciona comissao, origem_comissao,
-    taxas_totais, margem e margem_pct."""
+    """Espera colunas: valor_total, comissao_fonte, comissao_estimada (tabela
+    de faixas, calculada por item em core.metricas), frete, imposto e
+    custo_produtos. Adiciona comissao, origem_comissao, taxas_totais, margem
+    e margem_pct."""
     df = df.copy()
+    if "comissao_estimada" not in df.columns:
+        df["comissao_estimada"] = 0.0
 
     def _comissao(linha):
         if linha["comissao_fonte"] > 0:
             return linha["comissao_fonte"], "fonte"
-        regra = comissao_para_canal(linha["canal_nome"])
-        if regra:
-            estimada = (
-                linha["valor_total"] * regra["percentual"]
-                + linha["qtd_itens"] * regra["fixo_por_item"]
-            )
-            return round(estimada, 2), "tabela_comissoes"
+        if linha["comissao_estimada"] > 0:
+            return round(linha["comissao_estimada"], 2), "tabela_comissoes"
         return 0.0, "sem_comissao"
 
     resultado = df.apply(_comissao, axis=1, result_type="expand")

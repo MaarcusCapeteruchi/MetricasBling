@@ -8,6 +8,7 @@ from datetime import date
 import pandas as pd
 from sqlalchemy import text
 
+from core.comissoes import comissao_por_item
 from core.margem import aplicar_margem
 from db.database import engine
 
@@ -98,8 +99,31 @@ def analitico_pedidos(cliente_id: int, dt_ini: date, dt_fim: date,
         df = df[df["canal_nome"].isin(canais)]
     if df.empty:
         return df
+    df = df.reset_index(drop=True)
 
-    return aplicar_margem(df.reset_index(drop=True))
+    # Comissão estimada pela tabela de faixas (plano B), calculada por ITEM —
+    # é assim que os marketplaces cobram (faixa pelo valor unitário).
+    itens_detalhe = _df(
+        """
+        SELECT pedido_id, quantidade, valor_unitario
+        FROM itens_pedido WHERE cliente_id = :c
+        """,
+        {"c": cliente_id},
+    )
+    base = itens_detalhe.merge(df[["pedido_id", "canal_nome"]], on="pedido_id", how="inner")
+    if base.empty:
+        df["comissao_estimada"] = 0.0
+    else:
+        base["comissao_item"] = base.apply(
+            lambda linha: comissao_por_item(
+                linha["canal_nome"], float(linha["valor_unitario"]), float(linha["quantidade"])
+            ) or 0.0,
+            axis=1,
+        )
+        estimadas = base.groupby("pedido_id")["comissao_item"].sum()
+        df["comissao_estimada"] = df["pedido_id"].map(estimadas).fillna(0.0).round(2)
+
+    return aplicar_margem(df)
 
 
 def analitico_produtos(cliente_id: int, df_pedidos: pd.DataFrame) -> pd.DataFrame:
