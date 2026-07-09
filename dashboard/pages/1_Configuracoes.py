@@ -155,7 +155,13 @@ with aba_custos:
             | produtos["sku"].fillna("").str.lower().str.contains(filtro, na=False)
         ]
 
-    canais_produto = [c for c in produtos.columns if c not in catalogo.COLUNAS_FIXAS]
+    # getattr: tolera o intervalo de deploy em que a página nova roda com o
+    # módulo antigo na memória (Streamlit Cloud não recarrega módulos em push)
+    colunas_fixas = getattr(catalogo, "COLUNAS_FIXAS", [
+        "produto_id", "sku", "nome", "preco_custo",
+        "preco_medio_real", "qtd_vendida",
+    ])
+    canais_produto = [c for c in produtos.columns if c not in colunas_fixas]
     renome = {
         "sku": "SKU", "nome": "Produto", "qtd_vendida": "Vendidos",
         "preco_medio_real": "Média geral (R$)", "preco_custo": "Preço custo (R$)",
