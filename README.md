@@ -55,6 +55,8 @@ ajustar, por cliente e sem tocar no código:
   dias, paga +R$3 por item). A escolha fica na tabela `preferencias`.
 - **Custos dos produtos** — edição direta do preço de custo, com busca. Para
   cargas grandes, use `scripts/importar_custos.py`.
+- **Clientes** — lista os clientes e permite **excluir** um deles (com todos os
+  seus dados) pela interface, protegido por confirmação (digitar o nome).
 
 Ao salvar, o painel recalcula a margem na hora.
 

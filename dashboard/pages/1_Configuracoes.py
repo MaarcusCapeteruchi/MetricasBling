@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
-from core import catalogo, comissoes
+from core import catalogo, clientes, comissoes, metricas
 from core.formatos import moeda
 from dashboard.comum import exigir_senha, selecionar_cliente
 
@@ -27,7 +27,9 @@ st.title("⚙️ Configurações")
 cliente_id, nome_cliente = selecionar_cliente()
 st.caption(f"As configurações abaixo valem para **{nome_cliente}**.")
 
-aba_comissoes, aba_custos = st.tabs(["💸 Comissões por canal", "🏷️ Custos dos produtos"])
+aba_comissoes, aba_custos, aba_clientes = st.tabs(
+    ["💸 Comissões por canal", "🏷️ Custos dos produtos", "👥 Clientes"]
+)
 
 # ── Comissões ────────────────────────────────────────────────────────────
 with aba_comissoes:
@@ -175,3 +177,57 @@ with aba_custos:
         "Dica: para muitos produtos de uma vez, use "
         "`python -m scripts.importar_custos --cliente <id> --arquivo custos.csv --prefixo`."
     )
+
+# ── Clientes ─────────────────────────────────────────────────────────────
+with aba_clientes:
+    st.markdown("Clientes cadastrados no sistema:")
+    lista = metricas.listar_clientes()
+    st.dataframe(
+        lista.rename(columns={"id": "ID", "nome": "Cliente"}),
+        hide_index=True, width="stretch",
+    )
+
+    st.divider()
+    st.subheader("Excluir um cliente")
+    st.warning(
+        "A exclusão remove **todos os dados** do cliente (pedidos, produtos, "
+        "canais, taxas, comissões, tokens do Bling). **Não há como desfazer.**",
+        icon="⚠️",
+    )
+
+    nomes = dict(zip(lista["nome"], lista["id"]))
+    alvo_nome = st.selectbox("Cliente a excluir", list(nomes), key="excluir_alvo")
+    alvo_id = int(nomes[alvo_nome])
+    resumo = clientes.resumo_cliente(alvo_id)
+
+    col1, col2 = st.columns(2)
+    col1.metric("Pedidos", resumo.get("pedidos", 0))
+    col2.metric("Produtos", resumo.get("produtos", 0))
+    if resumo.get("tem_credencial"):
+        st.info(
+            "Este cliente tem conexão ativa com o Bling (tokens OAuth). Excluir "
+            "também remove essa conexão — será preciso autorizar de novo para "
+            "voltar a sincronizar.", icon="🔌",
+        )
+
+    st.caption(f"Para confirmar, digite o nome exato do cliente: **{alvo_nome}**")
+    confirmacao = st.text_input("Nome do cliente", key="excluir_confirma",
+                                label_visibility="collapsed", placeholder=alvo_nome)
+    pode_excluir = confirmacao.strip() == alvo_nome
+
+    if st.button("🗑️ Excluir cliente definitivamente", type="primary",
+                 disabled=not pode_excluir):
+        apagado = clientes.excluir_cliente(alvo_id)
+        st.cache_data.clear()
+        # limpa seleção lembrada para não apontar para um cliente que sumiu
+        for chave in ("cliente_nome", "excluir_alvo", "excluir_confirma",
+                      f"editor_comissoes_{alvo_id}"):
+            st.session_state.pop(chave, None)
+        st.success(
+            f"Cliente **{apagado.get('nome')}** excluído "
+            f"({apagado.get('pedidos', 0)} pedidos, {apagado.get('produtos', 0)} produtos)."
+        )
+        st.rerun()
+
+    if not pode_excluir and confirmacao.strip():
+        st.caption("O nome digitado não confere — a exclusão fica bloqueada.")
