@@ -27,10 +27,16 @@ def main() -> None:
     args = parser.parse_args()
 
     criar_tabelas()
-    sessao = Sessao()
-    autorizados = sessao.execute(
-        select(Credencial).where(Credencial.refresh_token.is_not(None))
-    ).scalars().all()
+    # Lê a lista e FECHA a conexão: uma sincronização longa deixaria esta
+    # sessão ociosa e o Neon derruba conexões ociosas (~5 min). Cada
+    # executar() abre e administra as próprias conexões.
+    with Sessao() as sessao:
+        autorizados = sessao.execute(
+            select(Credencial.cliente_id, Cliente.nome)
+            .join(Cliente, Cliente.id == Credencial.cliente_id)
+            .where(Credencial.refresh_token.is_not(None))
+            .order_by(Credencial.cliente_id)
+        ).all()
 
     if not autorizados:
         print("Nenhum cliente autorizado — nada a sincronizar.")
@@ -40,12 +46,10 @@ def main() -> None:
     desde = hoje - timedelta(days=args.dias)
     falhas = []
 
-    for credencial in autorizados:
-        cliente = sessao.get(Cliente, credencial.cliente_id)
-        nome = cliente.nome if cliente else f"cliente {credencial.cliente_id}"
-        print(f"\n=== [{credencial.cliente_id}] {nome} — {desde} a {hoje} ===")
+    for cliente_id, nome in autorizados:
+        print(f"\n=== [{cliente_id}] {nome} — {desde} a {hoje} ===")
         try:
-            resultado = executar(credencial.cliente_id, desde, hoje)
+            resultado = executar(cliente_id, desde, hoje)
             print(f"OK: {resultado['pedidos']} pedidos, {resultado['produtos']} produtos")
         except Exception as erro:  # um cliente com problema não derruba os demais
             falhas.append(nome)
