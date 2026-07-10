@@ -16,9 +16,14 @@ import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 
-from core import metricas
+from core import catalogo, metricas
 from core.formatos import inteiro, moeda, pct
-from dashboard.comum import aplicar_estilo, exigir_login, selecionar_cliente
+from dashboard.comum import (
+    aplicar_estilo,
+    exigir_login,
+    montar_visao_produtos,
+    selecionar_cliente,
+)
 
 load_dotenv()
 
@@ -36,6 +41,11 @@ def carregar_analitico(cliente_id: int, ini: date, fim: date, canais: tuple):
     df = metricas.analitico_pedidos(cliente_id, ini, fim, list(canais) or None)
     produtos = metricas.analitico_produtos(cliente_id, df)
     return df, produtos
+
+
+@st.cache_data(ttl=60)
+def carregar_catalogo(cliente_id: int):
+    return catalogo.listar_produtos(cliente_id)
 
 
 exigir_login()
@@ -179,6 +189,17 @@ with coluna_produtos:
             "Margem": st.column_config.NumberColumn(format="R$ %.2f"),
             "Margem %": st.column_config.NumberColumn(format="%.1f%%"),
         },
+    )
+
+with st.expander("📦 Catálogo — preços por marketplace e custo (todos os produtos)"):
+    visao_catalogo, config_catalogo = montar_visao_produtos(carregar_catalogo(cliente_id))
+    st.dataframe(
+        visao_catalogo, hide_index=True, width="stretch", height=380,
+        column_config=config_catalogo,
+    )
+    st.caption(
+        "Somente leitura. Para editar custos ou usar a planilha Excel: "
+        "Configurações → Custos dos produtos."
     )
 
 with st.expander("Ver dados diários em tabela"):

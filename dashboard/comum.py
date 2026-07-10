@@ -4,9 +4,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import pandas as pd
 import streamlit as st
 
-from core import metricas, usuarios
+from core import catalogo, metricas, usuarios
+from core.formatos import moeda
 
 # CSS: ajustes para telas pequenas (celular) — KPIs, títulos e respiros
 _ESTILO = """
@@ -106,3 +108,45 @@ def exigir_equipe(usuario: dict) -> None:
     if usuario.get("papel") == "cliente":
         st.warning("Esta área é restrita à equipe.", icon="🔒")
         st.stop()
+
+
+def montar_visao_produtos(produtos: pd.DataFrame):
+    """Tabela de produtos pronta para exibição (painel e Configurações).
+
+    Retorna (visao, column_config): preços por canal e média formatados em
+    R$ com '—' quando o produto não vendeu no canal; Preço custo numérico
+    (editável apenas onde a página usar data_editor).
+    """
+    canais = [c for c in produtos.columns if c not in catalogo.COLUNAS_FIXAS]
+    renome = {
+        "sku": "SKU", "nome": "Produto", "qtd_vendida": "Vendidos",
+        "preco_medio_real": "Média geral (R$)", "preco_custo": "Preço custo (R$)",
+    }
+    renome.update({canal: f"{canal} (R$)" for canal in canais})
+    colunas_canal = [f"{canal} (R$)" for canal in canais]
+
+    visao = produtos.rename(columns=renome)[
+        ["produto_id", "SKU", "Produto", "Vendidos"]
+        + colunas_canal + ["Média geral (R$)", "Preço custo (R$)"]
+    ]
+    for coluna in colunas_canal + ["Média geral (R$)"]:
+        visao[coluna] = visao[coluna].map(
+            lambda v: "—" if pd.isna(v) else moeda(float(v))
+        )
+
+    config = {
+        "produto_id": None,
+        "Vendidos": st.column_config.NumberColumn(
+            format="%.0f", help="Unidades vendidas no histórico (todos os canais)."),
+        "Média geral (R$)": st.column_config.TextColumn(
+            help="Média dos preços reais de venda entre todos os marketplaces. "
+                 "— significa que o produto ainda não vendeu."),
+        "Preço custo (R$)": st.column_config.NumberColumn(
+            format="R$ %.2f", min_value=0,
+            help="Quanto o produto custou para o cliente."),
+    }
+    for canal, coluna in zip(canais, colunas_canal):
+        config[coluna] = st.column_config.TextColumn(
+            help=f"Preço médio de venda real em {canal}. "
+                 "— significa que o produto ainda não vendeu neste canal.")
+    return visao, config

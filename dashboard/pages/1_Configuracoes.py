@@ -15,7 +15,13 @@ from dotenv import load_dotenv
 
 from core import catalogo, clientes, comissoes, metricas, preferencias, usuarios
 from core.formatos import moeda
-from dashboard.comum import aplicar_estilo, exigir_equipe, exigir_login, selecionar_cliente
+from dashboard.comum import (
+    aplicar_estilo,
+    exigir_equipe,
+    exigir_login,
+    montar_visao_produtos,
+    selecionar_cliente,
+)
 
 load_dotenv()
 
@@ -158,46 +164,7 @@ with aba_custos:
             | produtos["sku"].fillna("").str.lower().str.contains(filtro, na=False)
         ]
 
-    # getattr: tolera o intervalo de deploy em que a página nova roda com o
-    # módulo antigo na memória (Streamlit Cloud não recarrega módulos em push)
-    colunas_fixas = getattr(catalogo, "COLUNAS_FIXAS", [
-        "produto_id", "sku", "nome", "preco_custo",
-        "preco_medio_real", "qtd_vendida",
-    ])
-    canais_produto = [c for c in produtos.columns if c not in colunas_fixas]
-    renome = {
-        "sku": "SKU", "nome": "Produto", "qtd_vendida": "Vendidos",
-        "preco_medio_real": "Média geral (R$)", "preco_custo": "Preço custo (R$)",
-    }
-    renome.update({canal: f"{canal} (R$)" for canal in canais_produto})
-    colunas_canal = [f"{canal} (R$)" for canal in canais_produto]
-
-    visao = produtos.rename(columns=renome)[
-        ["produto_id", "SKU", "Produto", "Vendidos"]
-        + colunas_canal + ["Média geral (R$)", "Preço custo (R$)"]
-    ]
-    # "—" no lugar de célula vazia: sem isso o grid mostra "None", que parece erro
-    for coluna in colunas_canal + ["Média geral (R$)"]:
-        visao[coluna] = visao[coluna].map(
-            lambda v: "—" if pd.isna(v) else moeda(float(v))
-        )
-
-    config_colunas = {
-        "produto_id": None,
-        "Vendidos": st.column_config.NumberColumn(
-            format="%.0f", help="Unidades vendidas no histórico (todos os canais)."),
-        "Média geral (R$)": st.column_config.TextColumn(
-            help="Média dos preços reais de venda entre todos os marketplaces. "
-                 "— significa que o produto ainda não vendeu."),
-        "Preço custo (R$)": st.column_config.NumberColumn(
-            format="R$ %.2f", min_value=0,
-            help="Quanto o produto custou para o cliente. Única coluna editável."),
-    }
-    for canal, coluna in zip(canais_produto, colunas_canal):
-        config_colunas[coluna] = st.column_config.TextColumn(
-            help=f"Preço médio de venda real em {canal}. "
-                 "— significa que o produto ainda não vendeu neste canal.")
-
+    visao, config_colunas = montar_visao_produtos(produtos)
     editado_custos = st.data_editor(
         visao, hide_index=True, width="stretch", height=440, key=f"custos_{cliente_id}",
         disabled=[c for c in visao.columns if c != "Preço custo (R$)"],
@@ -214,10 +181,39 @@ with aba_custos:
         st.success(f"{alterados} produto(s) atualizado(s). O painel já recalculou a margem.")
         st.rerun()
 
-    st.caption(
-        "Dica: para muitos produtos de uma vez, use "
-        "`python -m scripts.importar_custos --cliente <id> --arquivo custos.csv --prefixo`."
-    )
+    st.divider()
+    st.markdown("**📊 Planilha de custos (Excel)** — para preencher muitos produtos de uma vez")
+    col_exportar, col_importar = st.columns(2)
+    with col_exportar:
+        st.download_button(
+            "📥 Baixar planilha modelo",
+            data=catalogo.gerar_planilha_modelo(cliente_id),
+            file_name=f"custos_{nome_cliente.replace(' ', '_').lower()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Excel com todos os produtos (SKU, preço de venda) e a coluna "
+                 "de custo para preencher.",
+        )
+        st.caption("Preencha a coluna **Preco custo (R$)** e importe ao lado.")
+    with col_importar:
+        arquivo = st.file_uploader(
+            "📤 Importar planilha preenchida", type=["xlsx", "csv"],
+            key=f"upload_custos_{cliente_id}",
+        )
+        if arquivo is not None and st.button("Aplicar custos da planilha", type="primary"):
+            resultado = catalogo.importar_planilha(cliente_id, arquivo, arquivo.name)
+            if resultado.get("erro"):
+                st.error(resultado["erro"])
+            else:
+                st.cache_data.clear()
+                st.success(
+                    f"✅ {resultado['produtos_atualizados']} produto(s) atualizados "
+                    f"a partir de {resultado['linhas_com_custo']} linha(s) com custo."
+                )
+                if resultado["nao_encontrados"]:
+                    st.warning(
+                        f"SKUs não encontrados ({len(resultado['nao_encontrados'])}): "
+                        + ", ".join(resultado["nao_encontrados"][:15]), icon="⚠️",
+                    )
 
 # ── Impostos e custos estimados ──────────────────────────────────────────
 with aba_estimativas:

@@ -65,6 +65,89 @@ def listar_produtos(cliente_id: int) -> pd.DataFrame:
     return df
 
 
+def gerar_planilha_modelo(cliente_id: int) -> bytes:
+    """Planilha Excel com os produtos do cliente para preencher o custo.
+
+    Colunas: SKU, Produto, Vendidos, Preço médio de venda e Preço custo
+    (com o valor atual, se houver). O usuário preenche a última e importa.
+    """
+    import io
+
+    df = listar_produtos(cliente_id)
+    modelo = df[["sku", "nome", "qtd_vendida", "preco_medio_real", "preco_custo"]].rename(
+        columns={"sku": "SKU", "nome": "Produto", "qtd_vendida": "Vendidos",
+                 "preco_medio_real": "Preco medio de venda (R$)",
+                 "preco_custo": "Preco custo (R$)"}
+    )
+    buffer = io.BytesIO()
+    modelo.to_excel(buffer, index=False, sheet_name="Custos")
+    return buffer.getvalue()
+
+
+def _para_numero(valor) -> float | None:
+    """Aceita 45.9, '45,90', 'R$ 1.234,56' e afins. None quando vazio."""
+    if valor is None:
+        return None
+    if isinstance(valor, (int, float)):
+        return None if pd.isna(valor) else float(valor)
+    texto = str(valor).strip().replace("R$", "").replace(" ", "")
+    if not texto:
+        return None
+    if "," in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+    try:
+        return float(texto)
+    except ValueError:
+        return None
+
+
+def importar_planilha(cliente_id: int, arquivo, nome_arquivo: str = "") -> dict:
+    """Aplica custos de uma planilha (xlsx/csv) casando por SKU.
+
+    Procura a coluna de SKU e a de custo pelos nomes; linhas com custo vazio
+    são ignoradas. Retorna contagens e a lista de SKUs não encontrados.
+    """
+    if nome_arquivo.lower().endswith(".csv"):
+        tabela = pd.read_csv(arquivo, sep=None, engine="python", dtype=str)
+    else:
+        tabela = pd.read_excel(arquivo, dtype={0: str})
+
+    coluna_sku = next((c for c in tabela.columns if "sku" in str(c).lower()),
+                      tabela.columns[0])
+    coluna_custo = next((c for c in tabela.columns if "custo" in str(c).lower()), None)
+    if coluna_custo is None:
+        return {"erro": "A planilha não tem coluna de custo (nome deve conter 'custo')."}
+
+    produtos = listar_produtos(cliente_id)
+    por_sku: dict[str, list[int]] = {}
+    for linha in produtos.itertuples():
+        if linha.sku:
+            por_sku.setdefault(str(linha.sku).strip().upper(), []).append(int(linha.produto_id))
+
+    custos: dict[int, float] = {}
+    nao_encontrados: list[str] = []
+    linhas_com_custo = 0
+    for _, linha in tabela.iterrows():
+        sku = str(linha.get(coluna_sku, "") or "").strip()
+        custo = _para_numero(linha.get(coluna_custo))
+        if not sku or sku.lower() in ("nan", "none") or custo is None:
+            continue
+        linhas_com_custo += 1
+        ids = por_sku.get(sku.upper())
+        if not ids:
+            nao_encontrados.append(sku)
+            continue
+        for produto_id in ids:
+            custos[produto_id] = round(custo, 2)
+
+    atualizados = salvar_custos(cliente_id, custos) if custos else 0
+    return {
+        "linhas_com_custo": linhas_com_custo,
+        "produtos_atualizados": atualizados,
+        "nao_encontrados": nao_encontrados,
+    }
+
+
 def salvar_custos(cliente_id: int, custos: dict[int, float | None]) -> int:
     """Atualiza preco_custo dos produtos informados (id -> custo). Conta alterados."""
     alterados = 0
