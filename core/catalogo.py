@@ -101,22 +101,67 @@ def _para_numero(valor) -> float | None:
         return None
 
 
+def _eh_coluna_sku(nome) -> bool:
+    return "sku" in str(nome).strip().lower()
+
+
+def _eh_coluna_custo(nome) -> bool:
+    """Reconhece 'Preco custo', 'CUSTO', 'VALOR DA COMPRA + FRETE' e variações."""
+    texto = str(nome).strip().lower()
+    return "custo" in texto or ("compra" in texto and "frete" in texto)
+
+
+def _extrair_custos_da_aba(bruta: pd.DataFrame) -> dict[str, float]:
+    """Extrai {SKU: custo} de uma aba lida SEM cabeçalho.
+
+    Acha a linha de cabeçalho procurando 'SKU' + coluna de custo nas
+    primeiras 10 linhas — tolera títulos e linhas soltas antes da tabela.
+    Abas sem esse par (ex.: tabelas de frete) retornam vazio.
+    """
+    for indice in range(min(10, len(bruta))):
+        cabecalho = bruta.iloc[indice]
+        col_sku = next((c for c in bruta.columns if _eh_coluna_sku(cabecalho[c])), None)
+        col_custo = next((c for c in bruta.columns if _eh_coluna_custo(cabecalho[c])), None)
+        if col_sku is None or col_custo is None:
+            continue
+
+        custos: dict[str, float] = {}
+        for _, linha in bruta.iloc[indice + 1:].iterrows():
+            sku = str(linha[col_sku] if linha[col_sku] is not None else "").strip()
+            custo = _para_numero(linha[col_custo])
+            if not sku or sku.lower() in ("nan", "none", "0") or custo is None:
+                continue
+            custos[sku.upper()] = round(custo, 2)
+        return custos
+    return {}
+
+
 def importar_planilha(cliente_id: int, arquivo, nome_arquivo: str = "") -> dict:
     """Aplica custos de uma planilha (xlsx/csv) casando por SKU.
 
-    Procura a coluna de SKU e a de custo pelos nomes; linhas com custo vazio
-    são ignoradas. Retorna contagens e a lista de SKUs não encontrados.
+    Lê TODAS as abas do Excel (planilhas de precificação costumam ter uma
+    aba por marketplace); reconhece a coluna de custo por 'custo' ou
+    'valor da compra + frete', e acha o cabeçalho mesmo fora da 1ª linha.
+    O mesmo SKU em várias abas usa o último valor lido.
     """
     if nome_arquivo.lower().endswith(".csv"):
-        tabela = pd.read_csv(arquivo, sep=None, engine="python", dtype=str)
+        tabela = pd.read_csv(arquivo, sep=None, engine="python", header=None, dtype=str)
+        abas = {"csv": tabela}
     else:
-        tabela = pd.read_excel(arquivo, dtype={0: str})
+        abas = pd.read_excel(arquivo, sheet_name=None, header=None)
 
-    coluna_sku = next((c for c in tabela.columns if "sku" in str(c).lower()),
-                      tabela.columns[0])
-    coluna_custo = next((c for c in tabela.columns if "custo" in str(c).lower()), None)
-    if coluna_custo is None:
-        return {"erro": "A planilha não tem coluna de custo (nome deve conter 'custo')."}
+    custos_por_sku: dict[str, float] = {}
+    abas_usadas = []
+    for nome_aba, bruta in abas.items():
+        extraidos = _extrair_custos_da_aba(bruta)
+        if extraidos:
+            custos_por_sku.update(extraidos)
+            abas_usadas.append(str(nome_aba))
+
+    if not custos_por_sku:
+        return {"erro": "Nenhuma aba com colunas de SKU e custo encontrada. "
+                        "A coluna de custo deve conter 'custo' ou "
+                        "'valor da compra + frete' no nome."}
 
     produtos = listar_produtos(cliente_id)
     por_sku: dict[str, list[int]] = {}
@@ -126,23 +171,18 @@ def importar_planilha(cliente_id: int, arquivo, nome_arquivo: str = "") -> dict:
 
     custos: dict[int, float] = {}
     nao_encontrados: list[str] = []
-    linhas_com_custo = 0
-    for _, linha in tabela.iterrows():
-        sku = str(linha.get(coluna_sku, "") or "").strip()
-        custo = _para_numero(linha.get(coluna_custo))
-        if not sku or sku.lower() in ("nan", "none") or custo is None:
-            continue
-        linhas_com_custo += 1
-        ids = por_sku.get(sku.upper())
+    for sku, custo in custos_por_sku.items():
+        ids = por_sku.get(sku)
         if not ids:
             nao_encontrados.append(sku)
             continue
         for produto_id in ids:
-            custos[produto_id] = round(custo, 2)
+            custos[produto_id] = custo
 
     atualizados = salvar_custos(cliente_id, custos) if custos else 0
     return {
-        "linhas_com_custo": linhas_com_custo,
+        "abas_usadas": abas_usadas,
+        "linhas_com_custo": len(custos_por_sku),
         "produtos_atualizados": atualizados,
         "nao_encontrados": nao_encontrados,
     }

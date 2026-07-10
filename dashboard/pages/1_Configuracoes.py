@@ -198,6 +198,9 @@ with aba_custos:
         arquivo = st.file_uploader(
             "📤 Importar planilha preenchida", type=["xlsx", "csv"],
             key=f"upload_custos_{cliente_id}",
+            help="Aceita o modelo exportado ao lado OU a planilha de "
+                 "precificação da empresa (abas por marketplace; coluna de "
+                 "custo 'VALOR DA COMPRA + FRETE' ou similar). Casa por SKU.",
         )
         if arquivo is not None and st.button("Aplicar custos da planilha", type="primary"):
             resultado = catalogo.importar_planilha(cliente_id, arquivo, arquivo.name)
