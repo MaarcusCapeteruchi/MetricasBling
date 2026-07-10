@@ -1,0 +1,25 @@
+name: Sincronizacao diaria
+
+on:
+  schedule:
+    - cron: "0 9 * * *" # 09:00 UTC = 06:00 Brasilia
+  workflow_dispatch: {} # permite disparar manualmente pela aba Actions
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias do conector
+        run: pip install --quiet requests sqlalchemy psycopg2-binary python-dotenv
+
+      - name: Sincronizar todos os clientes
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python -m scripts.sincronizar_todos
