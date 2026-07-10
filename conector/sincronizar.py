@@ -35,6 +35,36 @@ SITUACOES_BLING = {
     18: "Venda agenciada", 21: "Em digitação", 24: "Verificado",
 }
 
+# Identificação automática do marketplace pelo CNPJ do intermediador do
+# pedido — identidade jurídica da plataforma, não muda. Shopee/ML/TikTok
+# conferidos neste projeto com pedidos reais.
+CNPJ_PLATAFORMAS = {
+    "35.635.824/0001-12": "Shopee",
+    "03.007.331/0001-41": "Mercado Livre",
+    "27.415.911/0001-36": "TikTok Shop",
+    "47.960.950/0001-21": "Magalu",
+    "15.436.940/0001-03": "Amazon",
+}
+# Plano B quando o pedido não traz intermediador: padrão da transportadora.
+SERVICO_PLATAFORMAS = [
+    ("shopee", "Shopee"),
+    ("lsv-", "TikTok Shop"),
+    ("mercado envios", "Mercado Livre"),
+]
+PREFIXO_CANAL_PENDENTE = "Loja Bling "
+
+
+def _inferir_nome_canal(detalhe: dict) -> str | None:
+    cnpj = ((detalhe.get("intermediador") or {}).get("cnpj") or "").strip()
+    if cnpj in CNPJ_PLATAFORMAS:
+        return CNPJ_PLATAFORMAS[cnpj]
+    volumes = (detalhe.get("transporte") or {}).get("volumes") or []
+    servico = (volumes[0].get("servico") or "").lower() if volumes else ""
+    for padrao, nome in SERVICO_PLATAFORMAS:
+        if padrao in servico:
+            return nome
+    return None
+
 
 def _num(valor, padrao=0.0) -> float:
     try:
@@ -90,9 +120,42 @@ def _obter_canal(sessao, cliente_id: int, detalhe: dict) -> Canal | None:
     canal = upsert_por_id_externo(
         sessao, Canal, cliente_id, FONTE, id_loja, {}
     )
+    inferido = _inferir_nome_canal(detalhe)
     if not canal.nome:
-        canal.nome = f"Loja Bling {id_loja}"
+        canal.nome = inferido or f"{PREFIXO_CANAL_PENDENTE}{id_loja}"
+    elif inferido and canal.nome.startswith(PREFIXO_CANAL_PENDENTE):
+        # upgrade do placeholder; nome dado pelo usuário nunca é sobrescrito
+        canal.nome = inferido
     return canal
+
+
+def nomear_canais_automaticamente(sessao, cliente_id: int) -> list[str]:
+    """Resolve canais ainda com nome-placeholder olhando o CNPJ do
+    intermediador nos pedidos já gravados. Roda ao fim de cada sincronização."""
+    renomeados = []
+    pendentes = (
+        sessao.query(Canal)
+        .filter(Canal.cliente_id == cliente_id,
+                Canal.nome.like(f"{PREFIXO_CANAL_PENDENTE}%"))
+        .all()
+    )
+    for canal in pendentes:
+        amostra = (
+            sessao.query(Pedido)
+            .filter(Pedido.cliente_id == cliente_id, Pedido.canal_id == canal.id,
+                    Pedido.dados_cru.isnot(None))
+            .limit(10)
+            .all()
+        )
+        for pedido in amostra:
+            inferido = _inferir_nome_canal(pedido.dados_cru or {})
+            if inferido:
+                canal.nome = inferido
+                renomeados.append(f"{canal.id_externo} -> {inferido}")
+                break
+    if renomeados:
+        sessao.commit()
+    return renomeados
 
 
 def _mapear_pedido(sessao, cliente_id: int, detalhe: dict) -> None:
@@ -203,6 +266,7 @@ def executar(cliente_id: int, desde: date, ate: date, limite: int | None = None,
         registro.pedidos_processados = sincronizar_pedidos(
             api, sessao, cliente_id, desde, ate, limite, False, ao_progredir
         )
+        nomear_canais_automaticamente(sessao, cliente_id)
         registro.status = "sucesso"
     except Exception as erro:
         registro.status = "erro"
