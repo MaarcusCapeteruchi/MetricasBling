@@ -155,7 +155,8 @@ def _mapear_pedido(sessao, cliente_id: int, detalhe: dict) -> None:
 
 
 def sincronizar_pedidos(api: BlingAPI, sessao, cliente_id: int, desde: date,
-                        ate: date, limite: int | None, inspecionar: bool) -> int:
+                        ate: date, limite: int | None, inspecionar: bool,
+                        ao_progredir=None) -> int:
     params = {"dataInicial": desde.isoformat(), "dataFinal": ate.isoformat()}
     total = 0
     for resumo in api.listar_paginado("/pedidos/vendas", params):
@@ -173,11 +174,46 @@ def sincronizar_pedidos(api: BlingAPI, sessao, cliente_id: int, desde: date,
         _mapear_pedido(sessao, cliente_id, detalhe)
         sessao.commit()
         total += 1
-        if total % 25 == 0:
+        if ao_progredir:
+            ao_progredir(total)
+        elif total % 25 == 0:
             print(f"  pedidos: {total}...")
         if limite and total >= limite:
             break
     return total
+
+
+def executar(cliente_id: int, desde: date, ate: date, limite: int | None = None,
+             sem_produtos: bool = False, ao_progredir=None) -> dict:
+    """Sincronização completa reutilizável (CLI e interface web).
+
+    ao_progredir(n) é chamado a cada pedido gravado — a tela usa para a barra
+    de progresso. Retorna {"produtos": n, "pedidos": n}.
+    """
+    criar_tabelas()
+    sessao = Sessao()
+    registro = Sincronizacao(cliente_id=cliente_id, fonte=FONTE)
+    sessao.add(registro)
+    sessao.commit()
+
+    try:
+        api = BlingAPI(sessao, cliente_id)
+        if not sem_produtos:
+            registro.produtos_processados = sincronizar_produtos(api, sessao, cliente_id)
+        registro.pedidos_processados = sincronizar_pedidos(
+            api, sessao, cliente_id, desde, ate, limite, False, ao_progredir
+        )
+        registro.status = "sucesso"
+    except Exception as erro:
+        registro.status = "erro"
+        registro.mensagem = str(erro)[:2000]
+        raise
+    finally:
+        registro.finalizada_em = datetime.utcnow()
+        sessao.commit()
+
+    return {"produtos": registro.produtos_processados,
+            "pedidos": registro.pedidos_processados}
 
 
 def main() -> None:
@@ -200,34 +236,13 @@ def main() -> None:
         sincronizar_pedidos(api, sessao, args.cliente, args.desde, args.ate, None, True)
         return
 
-    registro = Sincronizacao(cliente_id=args.cliente, fonte=FONTE)
-    sessao.add(registro)
-    sessao.commit()
-
-    try:
-        api = BlingAPI(sessao, args.cliente)
-
-        if not args.sem_produtos:
-            print("Sincronizando produtos...")
-            registro.produtos_processados = sincronizar_produtos(api, sessao, args.cliente)
-
-        print(f"Sincronizando pedidos de {args.desde} a {args.ate}...")
-        registro.pedidos_processados = sincronizar_pedidos(
-            api, sessao, args.cliente, args.desde, args.ate, args.limite, False
-        )
-
-        registro.status = "sucesso"
-    except Exception as erro:
-        registro.status = "erro"
-        registro.mensagem = str(erro)[:2000]
-        raise
-    finally:
-        registro.finalizada_em = datetime.utcnow()
-        sessao.commit()
-
+    print(f"Sincronizando produtos e pedidos de {args.desde} a {args.ate}...")
+    resultado = executar(
+        args.cliente, args.desde, args.ate, args.limite, args.sem_produtos
+    )
     print(
-        f"\nConcluído: {registro.produtos_processados} produtos, "
-        f"{registro.pedidos_processados} pedidos gravados no modelo canônico."
+        f"\nConcluído: {resultado['produtos']} produtos, "
+        f"{resultado['pedidos']} pedidos gravados no modelo canônico."
     )
 
 

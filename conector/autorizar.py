@@ -18,7 +18,12 @@ from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
 
-from conector.bling_auth import montar_url_autorizacao, salvar_tokens, trocar_code_por_tokens
+from conector.bling_auth import (
+    credenciais_app,
+    montar_url_autorizacao,
+    salvar_tokens,
+    trocar_code_por_tokens,
+)
 from db.database import Sessao
 from db.models import Cliente, criar_tabelas
 
@@ -73,7 +78,8 @@ def main() -> None:
     redirect_uri = os.getenv("BLING_REDIRECT_URI", "http://localhost:8484/callback")
     porta = urlparse(redirect_uri).port or 80
 
-    url, state = montar_url_autorizacao()
+    client_id, client_secret = credenciais_app(sessao, cliente.id)
+    url, state = montar_url_autorizacao(client_id)
     print("\nAbra (com a conta Bling do cliente) e autorize o app:")
     print(f"\n  {url}\n")
     print(f"Aguardando o callback em {redirect_uri} ...")
@@ -88,8 +94,8 @@ def main() -> None:
     if resultado.get("state") != state:
         raise SystemExit("State divergente no callback — fluxo abortado por segurança.")
 
-    tokens = trocar_code_por_tokens(resultado["code"])
-    salvar_tokens(sessao, cliente.id, tokens)
+    tokens = trocar_code_por_tokens(resultado["code"], client_id, client_secret)
+    salvar_tokens(sessao, cliente.id, tokens, client_id, client_secret)
     print(f"\nTokens salvos para o cliente [{cliente.id}] {cliente.nome}.")
     print("Próximo passo: python -m conector.sincronizar --cliente", cliente.id, "--inspecionar")
 

@@ -157,6 +157,10 @@ class Credencial(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     cliente_id: Mapped[int] = mapped_column(ForeignKey("clientes.id"), index=True)
     fonte: Mapped[str] = mapped_column(String(30))
+    # Credenciais do APP registrado no Bling do cliente (cada cliente tem o
+    # seu app). Quando vazias, vale o fallback BLING_CLIENT_ID/SECRET do .env.
+    client_id: Mapped[str | None] = mapped_column(String(120))
+    client_secret: Mapped[str | None] = mapped_column(String(200))
     access_token: Mapped[str | None] = mapped_column(Text)
     refresh_token: Mapped[str | None] = mapped_column(Text)
     expira_em: Mapped[datetime | None] = mapped_column(DateTime)
