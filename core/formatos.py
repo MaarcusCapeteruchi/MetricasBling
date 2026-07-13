@@ -1,7 +1,9 @@
 """Formatação de números no padrão brasileiro."""
 
 
-def moeda(valor: float) -> str:
+def moeda(valor: float | None) -> str:
+    if valor is None:
+        return "—"
     texto = f"{valor:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
     return f"R$ {texto}"
 

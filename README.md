@@ -61,6 +61,17 @@ ajustar, por cliente e sem tocar no código:
   (vê só o painel do cliente vinculado; sem Configurações). Senhas com hash
   PBKDF2. O usuário `admin` + APP_SENHA é o acesso mestre, sempre disponível.
 
+### Simulador de Preços
+
+Página **Simulador de Preços** com dois modos (`core/simulador.py`):
+
+- **Margem por preço** — nas duas direções: preço → quanto sobra em cada canal
+  (comissão por faixa + imposto + custo), e margem-alvo → preço mínimo por canal
+  (resolvido por faixa, capturando o "penhasco de taxa" nas fronteiras).
+- **Corredor de lucro** — cruza o piso (preço mínimo p/ margem-alvo) com o teto
+  (preço de mercado; começa no preço real já praticado no canal, editável para o
+  preço do concorrente) e diz, por canal, se dá para competir e com quanta folga.
+
 ### Login e celular
 
 O painel exige login (usuário + senha) sempre que `APP_SENHA` está definida ou
