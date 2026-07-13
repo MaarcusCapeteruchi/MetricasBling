@@ -30,6 +30,8 @@ Fontes dos padrões (pesquisa multi-fonte com verificação, 09/jul/2026):
 from sqlalchemy import select
 
 from core import preferencias
+from core.ml_frete import PRECOS as ML_PRECOS
+from core.ml_frete import frete_ml
 from db.database import Sessao
 from db.models import RegraComissao
 
@@ -97,12 +99,18 @@ def _faixas_do_canal(regras: dict[str, list[tuple]], nome_canal: str) -> list[tu
     return None
 
 
+def _eh_mercado_livre(nome_canal: str) -> bool:
+    return "mercado livre" in nome_canal.lower() or "meli" in nome_canal.lower()
+
+
 def comissao_por_item(regras: dict[str, list[tuple]], nome_canal: str | None,
-                      valor_unitario: float, quantidade: float = 1) -> float | None:
+                      valor_unitario: float, quantidade: float = 1,
+                      peso: float | None = None) -> float | None:
     """Comissão estimada de um item, pela faixa do valor unitário.
 
-    `regras` vem de carregar_regras(cliente_id). Retorna None quando o canal
-    não tem regra (ex.: site próprio) — nesse caso não há comissão a estimar.
+    No Mercado Livre, quando o PESO do produto é conhecido a parte fixa vem
+    da tabela oficial preço x peso (core/ml_frete.py) — o frete do Mercado
+    Envios varia com o peso. Sem peso, vale o fixo da regra configurada.
     """
     if not nome_canal:
         return None
@@ -113,8 +121,28 @@ def comissao_por_item(regras: dict[str, list[tuple]], nome_canal: str | None,
     ordenadas = sorted(faixas, key=lambda f: (f[0] is None, f[0] if f[0] is not None else 0))
     for limite, percentual, fixo in ordenadas:
         if limite is None or valor_unitario <= limite:
+            if peso and _eh_mercado_livre(nome_canal):
+                fixo = frete_ml(valor_unitario, float(peso))
             return quantidade * (valor_unitario * percentual + fixo)
     return None
+
+
+def faixas_efetivas(regras: dict[str, list[tuple]], nome_canal: str,
+                    peso: float | None = None) -> list[tuple] | None:
+    """Faixas para resolver 'margem-alvo -> preço' (usadas pelo simulador).
+
+    Para o ML com peso conhecido, gera faixas sintéticas a partir das colunas
+    de preço da tabela de frete (o fixo muda a cada coluna); demais canais
+    devolvem as faixas configuradas."""
+    faixas = _faixas_do_canal(regras, nome_canal)
+    if not faixas or not (peso and _eh_mercado_livre(nome_canal)):
+        return faixas
+    percentual = faixas[0][1]
+    sinteticas = []
+    for indice, inicio in enumerate(ML_PRECOS):
+        fim = ML_PRECOS[indice + 1] - 0.01 if indice + 1 < len(ML_PRECOS) else None
+        sinteticas.append((fim, percentual, frete_ml(inicio, float(peso))))
+    return sinteticas
 
 
 # ── Persistência para a tela de Configurações ────────────────────────────────

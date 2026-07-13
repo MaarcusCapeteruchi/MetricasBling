@@ -120,8 +120,10 @@ def analitico_pedidos(cliente_id: int, dt_ini: date, dt_fim: date,
     # é assim que os marketplaces cobram (faixa pelo valor unitário).
     itens_detalhe = _df(
         """
-        SELECT pedido_id, quantidade, valor_unitario
-        FROM itens_pedido WHERE cliente_id = :c
+        SELECT i.pedido_id, i.quantidade, i.valor_unitario, pr.peso
+        FROM itens_pedido i
+        LEFT JOIN produtos pr ON pr.id = i.produto_id
+        WHERE i.cliente_id = :c
         """,
         {"c": cliente_id},
     )
@@ -130,10 +132,12 @@ def analitico_pedidos(cliente_id: int, dt_ini: date, dt_fim: date,
         df["comissao_estimada"] = 0.0
     else:
         regras = carregar_regras(cliente_id)
+        base["peso"] = pd.to_numeric(base["peso"], errors="coerce")
         base["comissao_item"] = base.apply(
             lambda linha: comissao_por_item(
                 regras, linha["canal_nome"],
-                float(linha["valor_unitario"]), float(linha["quantidade"])
+                float(linha["valor_unitario"]), float(linha["quantidade"]),
+                float(linha["peso"]) if pd.notna(linha["peso"]) and linha["peso"] > 0 else None,
             ) or 0.0,
             axis=1,
         )

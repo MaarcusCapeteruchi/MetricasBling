@@ -22,13 +22,14 @@ def _parametros(cliente_id: int):
     return regras, imposto_pct, canais
 
 
-def simular_preco(cliente_id: int, preco: float, custo: float) -> list[dict]:
+def simular_preco(cliente_id: int, preco: float, custo: float,
+                  peso: float | None = None) -> list[dict]:
     """Para cada canal: comissão, imposto, custo, sobra e margem % a esse preço."""
     regras, imposto_pct, canais = _parametros(cliente_id)
     t = imposto_pct / 100
     linhas = []
     for canal in canais:
-        comissao = comissoes.comissao_por_item(regras, canal, preco, 1) or 0.0
+        comissao = comissoes.comissao_por_item(regras, canal, preco, 1, peso) or 0.0
         imposto = preco * t
         sobra = preco - comissao - imposto - custo
         margem = (sobra / preco * 100) if preco else 0.0
@@ -67,26 +68,27 @@ def _preco_para_margem_canal(faixas, custo: float, t: float, m: float) -> float 
     return round(min(solucoes), 2) if solucoes else None
 
 
-def preco_para_margem(cliente_id: int, custo: float, margem_alvo_pct: float) -> list[dict]:
+def preco_para_margem(cliente_id: int, custo: float, margem_alvo_pct: float,
+                      peso: float | None = None) -> list[dict]:
     """Preço mínimo por canal para atingir a margem-alvo (None se inviável)."""
     regras, imposto_pct, canais = _parametros(cliente_id)
     t = imposto_pct / 100
     m = margem_alvo_pct / 100
     linhas = []
     for canal in canais:
-        faixas = comissoes._faixas_do_canal(regras, canal)
+        faixas = comissoes.faixas_efetivas(regras, canal, peso)
         preco = _preco_para_margem_canal(faixas, custo, t, m)
         linhas.append({"canal": canal, "preco_minimo": preco})
     return linhas
 
 
 def corredor(cliente_id: int, custo: float, margem_alvo_pct: float,
-             tetos: dict[str, float]) -> list[dict]:
+             tetos: dict[str, float], peso: float | None = None) -> list[dict]:
     """Por canal: piso (p/ margem-alvo), teto (mercado), margem no teto e veredicto."""
     pisos = {linha["canal"]: linha["preco_minimo"]
-             for linha in preco_para_margem(cliente_id, custo, margem_alvo_pct)}
+             for linha in preco_para_margem(cliente_id, custo, margem_alvo_pct, peso)}
     simulados_no_teto = {}
-    for linha in _linhas_no_teto(cliente_id, custo, tetos):
+    for linha in _linhas_no_teto(cliente_id, custo, tetos, peso):
         simulados_no_teto[linha["canal"]] = linha
 
     linhas = []
@@ -106,7 +108,8 @@ def corredor(cliente_id: int, custo: float, margem_alvo_pct: float,
     return linhas
 
 
-def _linhas_no_teto(cliente_id: int, custo: float, tetos: dict[str, float]) -> list[dict]:
+def _linhas_no_teto(cliente_id: int, custo: float, tetos: dict[str, float],
+                    peso: float | None = None) -> list[dict]:
     """Simula, por canal, a margem no respectivo preço-teto."""
     regras, imposto_pct, canais = _parametros(cliente_id)
     t = imposto_pct / 100
@@ -116,7 +119,7 @@ def _linhas_no_teto(cliente_id: int, custo: float, tetos: dict[str, float]) -> l
         if not preco:
             linhas.append({"canal": canal, "margem_pct": None, "sobra": None})
             continue
-        comissao = comissoes.comissao_por_item(regras, canal, preco, 1) or 0.0
+        comissao = comissoes.comissao_por_item(regras, canal, preco, 1, peso) or 0.0
         sobra = preco - comissao - preco * t - custo
         margem = (sobra / preco * 100) if preco else 0.0
         linhas.append({"canal": canal, "margem_pct": round(margem, 1),

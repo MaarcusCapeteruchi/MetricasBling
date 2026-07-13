@@ -42,8 +42,8 @@ st.caption(
 )
 
 
-def escolher_produto(chave: str) -> tuple[float, dict]:
-    """Selebox de produto que devolve (custo, precos_por_canal). Permite custo manual."""
+def escolher_produto(chave: str) -> tuple[float, float | None, dict]:
+    """Seletor de produto: devolve (custo, peso, precos_por_canal), editáveis."""
     if produtos.empty:
         st.info("Sem produtos sincronizados para este cliente.")
         st.stop()
@@ -55,10 +55,19 @@ def escolher_produto(chave: str) -> tuple[float, dict]:
     linha = produtos[produtos["produto_id"] == rotulos[escolha]].iloc[0]
 
     custo_produto = float(linha["preco_custo"]) if pd.notna(linha["preco_custo"]) else 0.0
-    custo = st.number_input(
+    peso_produto = float(linha["peso"]) if pd.notna(linha["peso"]) else 0.0
+
+    coluna_custo, coluna_peso = st.columns(2)
+    custo = coluna_custo.number_input(
         "Custo do produto (R$)", value=round(custo_produto, 2), min_value=0.0,
         step=0.5, key=f"custo_{chave}",
         help="Vem do cadastro/planilha; ajuste se quiser simular outro custo.",
+    )
+    peso = coluna_peso.number_input(
+        "Peso (kg)", value=round(peso_produto, 3), min_value=0.0, step=0.1,
+        key=f"peso_{chave}", format="%.3f",
+        help="Usado no frete do Mercado Livre (tabela preço x peso). "
+             "0 = sem peso: usa a taxa fixa configurada nas Comissões.",
     )
     if custo_produto == 0:
         st.caption("⚠️ Produto sem custo cadastrado — informe acima para simular.")
@@ -67,14 +76,14 @@ def escolher_produto(chave: str) -> tuple[float, dict]:
     for canal in canais:
         if canal in linha.index and pd.notna(linha[canal]):
             precos_canal[canal] = float(linha[canal])
-    return custo, precos_canal
+    return custo, (peso if peso > 0 else None), precos_canal
 
 
 aba_margem, aba_corredor = st.tabs(["💰 Margem por preço", "🎯 Corredor de lucro"])
 
 # ── Aba 1: margem por preço (duas direções) ───────────────────────────────
 with aba_margem:
-    custo, precos_canal = escolher_produto("margem")
+    custo, peso, precos_canal = escolher_produto("margem")
     direcao = st.radio(
         "O que você quer descobrir?",
         ["Tenho o preço → quanto sobra", "Tenho a margem-alvo → qual o preço"],
@@ -83,7 +92,7 @@ with aba_margem:
 
     if direcao.startswith("Tenho o preço"):
         preco = st.number_input("Preço de venda (R$)", value=49.90, min_value=0.0, step=1.0)
-        linhas = simulador.simular_preco(cliente_id, preco, custo)
+        linhas = simulador.simular_preco(cliente_id, preco, custo, peso)
         tabela = pd.DataFrame([{
             "Canal": l["canal"], "Comissão": l["comissao"], "Imposto": l["imposto"],
             "Custo": l["custo"], "Sobra (lucro)": l["sobra"], "Margem %": l["margem_pct"],
@@ -104,7 +113,7 @@ with aba_margem:
     else:
         margem_alvo = st.number_input("Margem-alvo (%)", value=25.0, min_value=0.0,
                                       max_value=95.0, step=1.0)
-        linhas = simulador.preco_para_margem(cliente_id, custo, margem_alvo)
+        linhas = simulador.preco_para_margem(cliente_id, custo, margem_alvo, peso)
         tabela = pd.DataFrame([{
             "Canal": l["canal"],
             "Preço mínimo para a margem": l["preco_minimo"],
@@ -128,7 +137,7 @@ with aba_corredor:
         "O teto começa no **preço médio real já praticado** no canal — ajuste "
         "para o preço do concorrente que quiser testar."
     )
-    custo_c, precos_canal_c = escolher_produto("corredor")
+    custo_c, peso_c, precos_canal_c = escolher_produto("corredor")
     margem_alvo_c = st.number_input("Margem-alvo (%)", value=25.0, min_value=0.0,
                                     max_value=95.0, step=1.0, key="margem_corredor")
 
@@ -143,7 +152,7 @@ with aba_corredor:
             help="Padrão: preço médio já praticado. Troque pelo preço do concorrente.",
         )
 
-    linhas = simulador.corredor(cliente_id, custo_c, margem_alvo_c, tetos)
+    linhas = simulador.corredor(cliente_id, custo_c, margem_alvo_c, tetos, peso_c)
     for l in linhas:
         with st.container(border=True):
             col_a, col_b, col_c, col_d = st.columns([1.4, 1, 1, 1.6])

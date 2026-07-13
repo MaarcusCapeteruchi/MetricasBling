@@ -63,6 +63,7 @@ class Produto(Base):
     nome: Mapped[str] = mapped_column(String(300))
     preco_venda: Mapped[float | None] = mapped_column(Numeric(12, 2))
     preco_custo: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    peso: Mapped[float | None] = mapped_column(Numeric(10, 3))  # kg (frete ML)
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )

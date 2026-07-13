@@ -95,12 +95,14 @@ def sincronizar_produtos(api: BlingAPI, sessao, cliente_id: int) -> int:
             "nome": item.get("nome") or f"Produto {item['id']}",
             "preco_venda": _num(item.get("preco"), None),
         }
-        # Custo zerado/ausente na fonte não sobrescreve custo importado por
-        # planilha (scripts/importar_custos.py) — o canônico pode ser mais
-        # rico que a origem.
+        # Custo/peso zerados na fonte não sobrescrevem valores já enriquecidos
+        # (planilha/backfill) — o canônico pode ser mais rico que a origem.
         custo = _extrair_custo(item)
         if custo:
             valores["preco_custo"] = custo
+        peso = _num(item.get("pesoBruto"), 0) or _num(item.get("pesoLiquido"), 0)
+        if peso:
+            valores["peso"] = peso
         upsert_por_id_externo(
             sessao, Produto, cliente_id, FONTE, item["id"], valores
         )
@@ -110,6 +112,31 @@ def sincronizar_produtos(api: BlingAPI, sessao, cliente_id: int) -> int:
             print(f"  produtos: {total}...")
     sessao.commit()
     return total
+
+
+def preencher_pesos_faltantes(api: BlingAPI, sessao, cliente_id: int,
+                              maximo: int = 600) -> int:
+    """Busca o peso no DETALHE do produto para quem ainda não tem.
+
+    A listagem nem sempre traz peso; o detalhe traz (pesoBruto/pesoLiquido).
+    Roda ao fim da sincronização de produtos — depois da primeira passada,
+    o custo diário disso é praticamente zero."""
+    pendentes = (
+        sessao.query(Produto)
+        .filter(Produto.cliente_id == cliente_id, Produto.peso.is_(None))
+        .limit(maximo)
+        .all()
+    )
+    preenchidos = 0
+    for produto in pendentes:
+        detalhe = api.get(f"/produtos/{produto.id_externo}").get("data") or {}
+        peso = _num(detalhe.get("pesoBruto"), 0) or _num(detalhe.get("pesoLiquido"), 0)
+        produto.peso = peso if peso else 0  # 0 = consultado e sem peso (não repete)
+        preenchidos += 1 if peso else 0
+        if preenchidos % 50 == 0:
+            sessao.commit()
+    sessao.commit()
+    return preenchidos
 
 
 def _obter_canal(sessao, cliente_id: int, detalhe: dict) -> Canal | None:
@@ -263,6 +290,7 @@ def executar(cliente_id: int, desde: date, ate: date, limite: int | None = None,
         api = BlingAPI(sessao, cliente_id)
         if not sem_produtos:
             registro.produtos_processados = sincronizar_produtos(api, sessao, cliente_id)
+            preencher_pesos_faltantes(api, sessao, cliente_id)
         registro.pedidos_processados = sincronizar_pedidos(
             api, sessao, cliente_id, desde, ate, limite, False, ao_progredir
         )

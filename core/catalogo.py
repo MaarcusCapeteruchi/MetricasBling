@@ -7,7 +7,7 @@ from db.models import Produto
 
 # Colunas fixas de listar_produtos — o que vier além destas são os canais
 # (uma coluna de preço médio por marketplace, dinâmica por cliente).
-COLUNAS_FIXAS = ["produto_id", "sku", "nome", "preco_custo",
+COLUNAS_FIXAS = ["produto_id", "sku", "nome", "preco_custo", "peso",
                  "preco_medio_real", "qtd_vendida"]
 
 
@@ -23,12 +23,13 @@ def listar_produtos(cliente_id: int) -> pd.DataFrame:
         df = pd.read_sql(
             text("""
                 SELECT pr.id AS produto_id, pr.sku, pr.nome, pr.preco_custo,
+                       pr.peso,
                        AVG(i.valor_unitario) AS preco_medio_real,
                        COALESCE(SUM(i.quantidade), 0) AS qtd_vendida
                 FROM produtos pr
                 LEFT JOIN itens_pedido i ON i.produto_id = pr.id
                 WHERE pr.cliente_id = :c
-                GROUP BY pr.id, pr.sku, pr.nome, pr.preco_custo
+                GROUP BY pr.id, pr.sku, pr.nome, pr.preco_custo, pr.peso
                 ORDER BY qtd_vendida DESC, pr.nome
             """),
             conexao, params={"c": cliente_id},
@@ -49,6 +50,7 @@ def listar_produtos(cliente_id: int) -> pd.DataFrame:
 
     df["preco_medio_real"] = pd.to_numeric(df["preco_medio_real"], errors="coerce")
     df["preco_custo"] = pd.to_numeric(df["preco_custo"], errors="coerce")
+    df["peso"] = pd.to_numeric(df["peso"], errors="coerce")
     df["qtd_vendida"] = pd.to_numeric(df["qtd_vendida"], errors="coerce").fillna(0)
 
     if not por_canal.empty:
