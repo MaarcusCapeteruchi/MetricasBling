@@ -220,7 +220,9 @@ with st.expander("🛒 Últimas vendas — produto a produto (mais recentes prim
         )
         st.caption(
             f"Mostrando as {len(feed)} vendas mais recentes do período filtrado "
-            "(atualiza a cada sincronização)."
+            "(atualiza a cada sincronização). **Receita aqui é o valor do "
+            "produto** — o total do pedido (tabela diária abaixo) inclui também "
+            "o frete pago pelo comprador e os descontos do pedido."
         )
 
 with st.expander("📦 Catálogo — preços por marketplace e custo (todos os produtos)"):
@@ -239,9 +241,16 @@ with st.expander("Ver dados diários em tabela"):
         serie.rename(columns={"data": "Data", "receita": "Receita", "margem": "Margem real"}),
         hide_index=True, width="stretch",
         column_config={
-            "Receita": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Receita": st.column_config.NumberColumn(
+                format="R$ %.2f",
+                help="Total dos pedidos do dia: produtos + frete pago pelo "
+                     "comprador − descontos do pedido."),
             "Margem real": st.column_config.NumberColumn(format="R$ %.2f"),
         },
+    )
+    st.caption(
+        "Receita = total dos pedidos (inclui frete pago pelo comprador e "
+        "descontos). A visão por produto está em 🛒 Últimas vendas."
     )
 
 st.caption(
