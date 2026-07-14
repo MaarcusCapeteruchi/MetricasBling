@@ -147,15 +147,19 @@ def analitico_pedidos(cliente_id: int, dt_ini: date, dt_fim: date,
     return aplicar_margem(df)
 
 
-def analitico_produtos(cliente_id: int, df_pedidos: pd.DataFrame) -> pd.DataFrame:
-    """Margem por produto, com as taxas do pedido rateadas pela receita do item."""
+def analitico_itens(cliente_id: int, df_pedidos: pd.DataFrame) -> pd.DataFrame:
+    """Uma linha por ITEM vendido no período: produto, SKU, canal, data e a
+    margem daquele item (taxas do pedido rateadas pela receita do item).
+    Alimenta o feed de últimas vendas e a visão por produto."""
     if df_pedidos.empty:
         return pd.DataFrame()
 
     itens = _df(
         """
-        SELECT i.pedido_id, i.quantidade, i.valor_total AS receita_item,
+        SELECT i.pedido_id, i.quantidade, i.valor_unitario,
+               i.valor_total AS receita_item,
                COALESCE(pr.nome, i.descricao) AS produto,
+               pr.sku,
                COALESCE(pr.preco_custo, 0) AS preco_custo
         FROM itens_pedido i
         LEFT JOIN produtos pr ON pr.id = i.produto_id
@@ -163,11 +167,12 @@ def analitico_produtos(cliente_id: int, df_pedidos: pd.DataFrame) -> pd.DataFram
         """,
         {"c": cliente_id},
     )
-    for coluna in ["quantidade", "receita_item", "preco_custo"]:
+    for coluna in ["quantidade", "valor_unitario", "receita_item", "preco_custo"]:
         itens[coluna] = pd.to_numeric(itens[coluna], errors="coerce").fillna(0.0)
 
     base = itens.merge(
-        df_pedidos[["pedido_id", "valor_total", "taxas_totais"]],
+        df_pedidos[["pedido_id", "data", "numero", "canal_nome",
+                    "valor_total", "taxas_totais"]],
         on="pedido_id", how="inner",
     )
     if base.empty:
@@ -177,6 +182,17 @@ def analitico_produtos(cliente_id: int, df_pedidos: pd.DataFrame) -> pd.DataFram
     base["taxas_item"] = (base["taxas_totais"] * proporcao).round(2)
     base["custo_item"] = (base["quantidade"] * base["preco_custo"]).round(2)
     base["margem_item"] = base["receita_item"] - base["taxas_item"] - base["custo_item"]
+    base["margem_pct_item"] = (
+        (base["margem_item"] / base["receita_item"].replace(0, pd.NA)) * 100
+    ).astype(float).fillna(0.0)
+    return base
+
+
+def analitico_produtos(cliente_id: int, df_pedidos: pd.DataFrame) -> pd.DataFrame:
+    """Margem por produto, com as taxas do pedido rateadas pela receita do item."""
+    base = analitico_itens(cliente_id, df_pedidos)
+    if base.empty:
+        return pd.DataFrame()
 
     por_produto = (
         base.groupby("produto", as_index=False)

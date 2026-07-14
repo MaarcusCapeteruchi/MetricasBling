@@ -39,8 +39,9 @@ st.set_page_config(page_title="Métricas — Margem Real", page_icon="📊", lay
 @st.cache_data(ttl=60)
 def carregar_analitico(cliente_id: int, ini: date, fim: date, canais: tuple):
     df = metricas.analitico_pedidos(cliente_id, ini, fim, list(canais) or None)
+    itens = metricas.analitico_itens(cliente_id, df)
     produtos = metricas.analitico_produtos(cliente_id, df)
-    return df, produtos
+    return df, produtos, itens
 
 
 @st.cache_data(ttl=60)
@@ -77,7 +78,7 @@ with st.sidebar:
         value=float(os.getenv("MARGEM_ALERTA_PCT", "10")), min_value=0.0, step=1.0,
     )
 
-df, produtos = carregar_analitico(cliente_id, dt_ini, dt_fim, tuple(canais))
+df, produtos, itens_vendidos = carregar_analitico(cliente_id, dt_ini, dt_fim, tuple(canais))
 
 st.title(f"Margem real — {nome_cliente}")
 sinc = metricas.ultima_sincronizacao(cliente_id)
@@ -190,6 +191,37 @@ with coluna_produtos:
             "Margem %": st.column_config.NumberColumn(format="%.1f%%"),
         },
     )
+
+with st.expander("🛒 Últimas vendas — produto a produto (mais recentes primeiro)"):
+    if itens_vendidos.empty:
+        st.caption("Sem vendas no período selecionado.")
+    else:
+        feed = itens_vendidos.sort_values(
+            ["data", "pedido_id"], ascending=False
+        ).head(300)
+        feed = feed.rename(columns={
+            "data": "Data", "numero": "Pedido", "canal_nome": "Canal",
+            "sku": "SKU", "produto": "Produto", "quantidade": "Qtd",
+            "valor_unitario": "Preço unit.", "receita_item": "Receita",
+            "margem_item": "Margem", "margem_pct_item": "Margem %",
+        })[["Data", "Pedido", "Canal", "SKU", "Produto", "Qtd",
+            "Preço unit.", "Receita", "Margem", "Margem %"]]
+        st.dataframe(
+            feed, hide_index=True, width="stretch", height=380,
+            column_config={
+                "Qtd": st.column_config.NumberColumn(format="%.0f"),
+                "Preço unit.": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Receita": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Margem": st.column_config.NumberColumn(
+                    format="R$ %.2f",
+                    help="Margem do item: receita menos taxas rateadas e custo."),
+                "Margem %": st.column_config.NumberColumn(format="%.1f%%"),
+            },
+        )
+        st.caption(
+            f"Mostrando as {len(feed)} vendas mais recentes do período filtrado "
+            "(atualiza a cada sincronização)."
+        )
 
 with st.expander("📦 Catálogo — preços por marketplace e custo (todos os produtos)"):
     visao_catalogo, config_catalogo = montar_visao_produtos(carregar_catalogo(cliente_id))
