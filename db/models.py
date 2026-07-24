@@ -201,6 +201,29 @@ class Preferencia(Base):
     valor: Mapped[str] = mapped_column(String(200))
 
 
+class Precificacao(Base):
+    """Decisão de preço registrada na estação de precificação.
+
+    Congela o contexto do momento (custo, peso, margem-alvo e o preço +
+    margem esperada por canal) para o robô auditar depois contra a venda
+    real. Liga-se ao produto por SKU — não exige produto já sincronizado."""
+
+    __tablename__ = "precificacoes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cliente_id: Mapped[int] = mapped_column(ForeignKey("clientes.id"), index=True)
+    sku: Mapped[str | None] = mapped_column(String(120), index=True)
+    produto: Mapped[str] = mapped_column(String(300))
+    custo: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    peso: Mapped[float | None] = mapped_column(Numeric(10, 3))
+    margem_alvo: Mapped[float] = mapped_column(Numeric(6, 2), default=0)  # %
+    # {canal: {"preco": x, "margem_pct": y}} congelado na decisão
+    precos: Mapped[dict] = mapped_column(JSON)
+    observacao: Mapped[str | None] = mapped_column(String(300))
+    usuario: Mapped[str | None] = mapped_column(String(60))
+    decidido_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class RegraComissao(Base):
     """Faixa de comissão por canal, editável pela interface, por cliente.
 

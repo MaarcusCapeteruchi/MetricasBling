@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
-from core import catalogo, metricas, preferencias, simulador
+from core import catalogo, metricas, precificacao, preferencias, simulador
 from core.formatos import moeda, pct
 from dashboard.comum import aplicar_estilo, exigir_login, selecionar_cliente
 
@@ -16,7 +16,7 @@ load_dotenv()
 
 st.set_page_config(page_title="Simulador de Preços — Métricas", page_icon="🧮", layout="wide")
 
-exigir_login()
+usuario_logado = exigir_login()
 aplicar_estilo()
 
 st.title("🧮 Simulador de Preços")
@@ -79,7 +79,96 @@ def escolher_produto(chave: str) -> tuple[float, float | None, dict]:
     return custo, (peso if peso > 0 else None), precos_canal
 
 
-aba_margem, aba_corredor = st.tabs(["💰 Margem por preço", "🎯 Corredor de lucro"])
+aba_nova, aba_margem, aba_corredor, aba_hist = st.tabs(
+    ["🏷️ Nova precificação", "💰 Margem por preço", "🎯 Corredor de lucro",
+     "📋 Precificações salvas"]
+)
+
+# ── Aba 0: nova precificação (estação — entrada rápida por digitação) ──────
+with aba_nova:
+    st.markdown(
+        "Precifique um produto e **registre a decisão**. Não precisa esperar a "
+        "sincronização: digite os dados do cadastro (o mesmo que iria para a "
+        "planilha) e salve — quando o produto sincronizar, a decisão se liga a "
+        "ele pelo SKU."
+    )
+    col_sku, col_produto = st.columns([1, 2])
+    np_sku = col_sku.text_input("SKU", key="np_sku", placeholder="ex.: SOU-CAV-180")
+    np_produto = col_produto.text_input("Título do produto", key="np_produto")
+
+    col_c, col_p, col_m = st.columns(3)
+    np_custo = col_c.number_input("Custo (R$)", value=0.0, min_value=0.0, step=0.5, key="np_custo")
+    np_peso = col_p.number_input("Peso (kg)", value=0.0, min_value=0.0, step=0.1,
+                                 format="%.3f", key="np_peso",
+                                 help="Usado no frete do Mercado Livre por peso.")
+    np_margem = col_m.number_input("Margem-alvo (%)", value=20.0, min_value=0.0,
+                                   max_value=95.0, step=1.0, key="np_margem")
+
+    if np_custo <= 0:
+        st.info("Informe o custo para calcular o preço ideal por canal.", icon="✍️")
+    else:
+        linhas = precificacao.calcular(cliente_id, np_custo,
+                                       np_peso if np_peso > 0 else None, np_margem)
+        tabela = pd.DataFrame([{
+            "Canal": l["canal"],
+            "Preço ideal": l["preco"],
+            "Margem no preço": l["margem_pct"],
+        } for l in linhas])
+        st.dataframe(
+            tabela, hide_index=True, width="stretch",
+            column_config={
+                "Preço ideal": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Margem no preço": st.column_config.NumberColumn(format="%.1f%%"),
+            },
+        )
+        st.caption(
+            f"Preço mínimo em cada canal para {pct(np_margem, 0)} de margem "
+            "(custo, peso, comissão por faixa e imposto já considerados)."
+        )
+        np_obs = st.text_input("Observação (opcional)", key="np_obs",
+                               placeholder="ex.: acompanhando concorrente, campanha de julho")
+        precos_salvar = {l["canal"]: {"preco": l["preco"], "margem_pct": l["margem_pct"]}
+                         for l in linhas if l["preco"] is not None}
+        if st.button("💾 Salvar precificação", type="primary",
+                     disabled=not precos_salvar):
+            precificacao.salvar(
+                cliente_id, np_sku, np_produto or np_sku or "(sem nome)",
+                np_custo, np_peso if np_peso > 0 else None, np_margem,
+                precos_salvar, np_obs, usuario_logado.get("usuario", ""),
+            )
+            st.cache_data.clear()
+            st.success("✅ Precificação salva. Veja em 'Precificações salvas'.")
+
+# ── Aba 3: histórico de precificações + espelho Excel ─────────────────────
+with aba_hist:
+    historico = precificacao.listar(cliente_id)
+    if historico.empty:
+        st.caption("Nenhuma precificação registrada ainda para este cliente.")
+    else:
+        st.download_button(
+            "📥 Baixar planilha de precificações (Excel)",
+            data=precificacao.exportar_excel(cliente_id),
+            file_name=f"precificacoes_{nome_cliente.replace(' ', '_').lower()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Espelho da lista abaixo, no formato Excel — guarde no OneDrive "
+                 "como backup enquanto se acostuma com a ferramenta.",
+        )
+        st.dataframe(
+            historico, hide_index=True, width="stretch", height=380,
+            column_config={
+                "Preço decidido": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Custo": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Margem %": st.column_config.NumberColumn(format="%.1f%%"),
+            },
+        )
+        mapa = precificacao.ids_por_sku(cliente_id)
+        if mapa:
+            alvo = st.selectbox("Excluir uma precificação", ["—"] + list(mapa))
+            if alvo != "—" and st.button("🗑️ Excluir"):
+                precificacao.excluir(mapa[alvo])
+                st.cache_data.clear()
+                st.success("Precificação excluída.")
+                st.rerun()
 
 # ── Aba 1: margem por preço (duas direções) ───────────────────────────────
 with aba_margem:
